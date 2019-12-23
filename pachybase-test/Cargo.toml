@@ -1,0 +1,10 @@
+[package]
+name = "pachybase-test"
+version = "0.1.0"
+authors = ["David Roundy <daveroundy@gmail.com>"]
+license = "GPL-2.0+"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]

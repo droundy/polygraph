@@ -1,0 +1,16 @@
+[package]
+name = "pachybase"
+version = "0.1.0"
+authors = ["David Roundy <daveroundy@gmail.com>"]
+edition = "2018"
+license = "GPL-2.0+"
+readme = "README.md"
+documentation = "https://docs.rs/pachybase/"
+repository = "https://github.com/droundy/pachybase"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[workspace]
+members = ["pachybase-macro", "pachybase-test"]
