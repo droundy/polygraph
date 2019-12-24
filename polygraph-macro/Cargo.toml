@@ -1,10 +1,16 @@
 [package]
-name = "pachybase-test"
+name = "polygraph-macro"
 version = "0.1.0"
 authors = ["David Roundy <daveroundy@gmail.com>"]
-license = "GPL-2.0+"
 edition = "2018"
+license = "GPL-2.0+"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+quote = "1.0"
+proc-macro2 = "1.0"
+syn = { version = "1.0", features = ["full", "extra-traits"] }
+
+[lib]
+proc-macro = true
