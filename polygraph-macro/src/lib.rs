@@ -37,5 +37,9 @@ impl syn::parse::Parse for SchemaInput {
 pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input: SchemaInput = syn::parse_macro_input!(raw_input as SchemaInput);
     println!("input is {:?}", input);
-    "fn answer() -> u32 { 42 }".parse().unwrap()
+    let v = input.items[0].clone();
+    let output = quote::quote!{
+        #v
+    };
+    output.into()
 }

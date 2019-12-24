@@ -13,5 +13,7 @@ description = "An in-memory relational database"
 
 [dependencies]
 
+polygraph-macro = { path = "polygraph-macro" }
+
 [workspace]
 members = ["polygraph-macro", "polygraph-test"]
