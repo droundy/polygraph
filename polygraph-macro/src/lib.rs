@@ -14,21 +14,61 @@ mod tests {
     }
 }
 
+
+enum Item {
+    Struct(syn::ItemStruct),
+    Enum(syn::ItemEnum),
+}
+
+impl syn::parse::Parse for Item {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let mut attrs = input.call(syn::Attribute::parse_outer)?;
+        let ahead = input.fork();
+        let vis: syn::Visibility = ahead.parse()?;
+
+        let lookahead = ahead.lookahead1();
+        let mut item =
+            if lookahead.peek(syn::Token![struct]) {
+                input.parse().map(Item::Struct)
+            } else if lookahead.peek(syn::Token![enum]) {
+                input.parse().map(Item::Enum)
+            } else {
+                Err(lookahead.error())
+            }?;
+
+        {
+            let (item_vis, item_attrs) = match &mut item {
+                Item::Struct(item) => (&mut item.vis, &mut item.attrs),
+                Item::Enum(item) => (&mut item.vis, &mut item.attrs),
+            };
+            attrs.extend(item_attrs.drain(..));
+            *item_attrs = attrs;
+            *item_vis = vis;
+        }
+
+        Ok(item)
+    }
+}
+
 #[derive(Debug)]
 struct SchemaInput {
-    items: Vec<syn::Item>,
+    structs: Vec<syn::ItemStruct>,
+    enums: Vec<syn::ItemEnum>,
 }
 
 impl syn::parse::Parse for SchemaInput {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let mut structs = Vec::new();
+        let mut enums = Vec::new();
+        while !input.is_empty() {
+            match input.parse()? {
+                Item::Struct(i) => structs.push(i),
+                Item::Enum(i) => enums.push(i),
+            }
+        }
         Ok(SchemaInput {
-            items: {
-                let mut items = Vec::new();
-                while !input.is_empty() {
-                    items.push(input.parse()?);
-                }
-                items
-            },
+            structs,
+            enums,
         })
     }
 }
@@ -36,8 +76,8 @@ impl syn::parse::Parse for SchemaInput {
 #[proc_macro]
 pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input: SchemaInput = syn::parse_macro_input!(raw_input as SchemaInput);
-    println!("input is {:?}", input);
-    let v = input.items[0].clone();
+    println!("input is {:#?}", input);
+    let v = input.structs[0].clone();
     let output = quote::quote!{
         #v
     };

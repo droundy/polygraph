@@ -6,4 +6,5 @@ mod tests {
     }
 }
 
+#[cfg(doctest)]
 pub mod example;
