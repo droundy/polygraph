@@ -1,0 +1,5 @@
+error: schema! does not support generic types.
+ --> $DIR/has-generics.rs:2:22
+  |
+2 |     pub struct Struct<T>(T);
+  |                      ^^^

@@ -62,7 +62,13 @@ impl syn::parse::Parse for SchemaInput {
         let mut enums = Vec::new();
         while !input.is_empty() {
             match input.parse()? {
-                Item::Struct(i) => structs.push(i),
+                Item::Struct(i) => {
+                    if i.generics.params.len() > 0 {
+                        return Err(syn::Error::new_spanned(i.generics,
+                                                   "schema! does not support generic types."));
+                    }
+                    structs.push(i);
+                }
                 Item::Enum(i) => enums.push(i),
             }
         }
