@@ -15,5 +15,9 @@ description = "An in-memory relational database"
 
 polygraph-macro = { path = "polygraph-macro" }
 
+[dev-dependencies]
+
+trybuild = "1.0.18"
+
 [workspace]
 members = ["polygraph-macro", "polygraph-test"]

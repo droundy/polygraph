@@ -6,5 +6,13 @@ mod tests {
     }
 }
 
+pub use polygraph_macro::schema;
+
 #[cfg(doctest)]
 pub mod example;
+
+#[test]
+fn ui() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/*.rs");
+}
