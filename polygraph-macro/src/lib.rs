@@ -6,6 +6,8 @@
 
 extern crate proc_macro;
 
+use syn::spanned::Spanned;
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -77,13 +79,79 @@ impl syn::parse::Parse for SchemaInput {
     }
 }
 
+#[derive(Debug)]
+struct SchemaOutput {
+    save_structs: Vec<syn::ItemStruct>,
+    save_enums: Vec<syn::ItemEnum>,
+    view_structs: Vec<syn::ItemStruct>,
+    view_enums: Vec<syn::ItemEnum>,
+}
+
+impl SchemaInput {
+    fn process(&self) -> SchemaOutput {
+        let save_structs: Vec<_> = self.structs.iter().map(|x| {
+            let mut x = x.clone();
+            x.vis = syn::Visibility::Public(syn::VisPublic {
+                pub_token: syn::Token!(pub)(x.span())
+            });
+            x
+        }).collect();
+        let view_structs: Vec<_> = self.structs.iter().map(|x| {
+            let mut x = x.clone();
+            x.vis = syn::Visibility::Public(syn::VisPublic {
+                pub_token: syn::Token!(pub)(x.span())
+            });
+            x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
+            x
+        }).collect();
+
+        let save_enums: Vec<_> = self.enums.iter().map(|x| {
+            let mut x = x.clone();
+            x.vis = syn::Visibility::Public(syn::VisPublic {
+                pub_token: syn::Token!(pub)(x.span())
+            });
+            x
+        }).collect();
+        let view_enums: Vec<_> = self.enums.iter().map(|x| {
+            let mut x = x.clone();
+            x.vis = syn::Visibility::Public(syn::VisPublic {
+                pub_token: syn::Token!(pub)(x.span())
+            });
+            x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
+            x
+        }).collect();
+        SchemaOutput {
+            save_structs,
+            view_structs,
+            save_enums,
+            view_enums,
+        }
+    }
+}
+
 #[proc_macro]
 pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input: SchemaInput = syn::parse_macro_input!(raw_input as SchemaInput);
     println!("input is {:#?}", input);
-    let v = input.structs[0].clone();
+    let output = input.process();
+    let save_structs = output.save_structs.iter();
+    let view_structs = output.view_structs.iter();
+    let save_enums = output.save_enums.iter();
+    let view_enums = output.view_enums.iter();
     let output = quote::quote!{
-        #v
+        #(
+            #save_structs
+        )*
+        #(
+            #view_structs
+        )*
+        #(
+            #save_enums
+        )*
+        #(
+            #view_enums
+        )*
     };
+    println!("output is {:#?}", output.to_string());
     output.into()
 }

@@ -8,7 +8,6 @@ mod tests {
 
 pub use polygraph_macro::schema;
 
-#[cfg(doctest)]
 pub mod example;
 
 #[test]
