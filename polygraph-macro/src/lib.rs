@@ -37,10 +37,14 @@ impl syn::parse::Parse for Item {
             }?;
 
         {
-            let (item_vis, item_attrs) = match &mut item {
-                Item::Struct(item) => (&mut item.vis, &mut item.attrs),
-                Item::Enum(item) => (&mut item.vis, &mut item.attrs),
+            let (item_vis, item_attrs, generics) = match &mut item {
+                Item::Struct(item) => (&mut item.vis, &mut item.attrs, &item.generics),
+                Item::Enum(item) => (&mut item.vis, &mut item.attrs, &item.generics),
             };
+            if generics.params.len() > 0 {
+                return Err(syn::Error::new_spanned(generics,
+                                                   "schema! does not support generic types."));
+            }
             attrs.extend(item_attrs.drain(..));
             *item_attrs = attrs;
             *item_vis = vis;
@@ -62,13 +66,7 @@ impl syn::parse::Parse for SchemaInput {
         let mut enums = Vec::new();
         while !input.is_empty() {
             match input.parse()? {
-                Item::Struct(i) => {
-                    if i.generics.params.len() > 0 {
-                        return Err(syn::Error::new_spanned(i.generics,
-                                                   "schema! does not support generic types."));
-                    }
-                    structs.push(i);
-                }
+                Item::Struct(i) => structs.push(i),
                 Item::Enum(i) => enums.push(i),
             }
         }
