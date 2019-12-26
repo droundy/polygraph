@@ -188,6 +188,12 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             }
         }
+        macro_rules! mkschema {
+            () => {{
+                let mut internal_data = #name::new();
+                
+            }}
+        }
     };
     println!("output is {}", output.to_string());
     output.into()
