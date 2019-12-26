@@ -58,12 +58,16 @@ impl syn::parse::Parse for Item {
 
 #[derive(Debug)]
 struct SchemaInput {
+    name: syn::Ident,
     structs: Vec<syn::ItemStruct>,
     enums: Vec<syn::ItemEnum>,
 }
 
 impl syn::parse::Parse for SchemaInput {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<syn::Token![type]>()?;
+        let name: syn::Ident = input.parse()?;
+        input.parse::<syn::Token![;]>()?;
         let mut structs = Vec::new();
         let mut enums = Vec::new();
         while !input.is_empty() {
@@ -73,6 +77,7 @@ impl syn::parse::Parse for SchemaInput {
             }
         }
         Ok(SchemaInput {
+            name,
             structs,
             enums,
         })
@@ -81,6 +86,7 @@ impl syn::parse::Parse for SchemaInput {
 
 #[derive(Debug)]
 struct SchemaOutput {
+    name: syn::Ident,
     save_structs: Vec<syn::ItemStruct>,
     save_enums: Vec<syn::ItemEnum>,
     view_structs: Vec<syn::ItemStruct>,
@@ -89,11 +95,16 @@ struct SchemaOutput {
 
 impl SchemaInput {
     fn process(&self) -> SchemaOutput {
+        let mut tables = std::collections::HashSet::new();
+        tables.extend(self.structs.iter().map(|x| x.ident.clone()));
+        tables.extend(self.enums.iter().map(|x| x.ident.clone()));
+
         let save_structs: Vec<_> = self.structs.iter().map(|x| {
             let mut x = x.clone();
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
             });
+            x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
             x
         }).collect();
         let view_structs: Vec<_> = self.structs.iter().map(|x| {
@@ -101,7 +112,6 @@ impl SchemaInput {
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
             });
-            x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
             x
         }).collect();
 
@@ -110,6 +120,7 @@ impl SchemaInput {
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
             });
+            x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
             x
         }).collect();
         let view_enums: Vec<_> = self.enums.iter().map(|x| {
@@ -117,10 +128,10 @@ impl SchemaInput {
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
             });
-            x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
             x
         }).collect();
         SchemaOutput {
+            name: self.name.clone(),
             save_structs,
             view_structs,
             save_enums,
@@ -135,9 +146,15 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     println!("input is {:#?}", input);
     let output = input.process();
     let save_structs = output.save_structs.iter();
+    let mut save_names: Vec<_> =
+        output.save_structs.iter().map(|x| x.ident.clone()).collect();
     let view_structs = output.view_structs.iter();
     let save_enums = output.save_enums.iter();
     let view_enums = output.view_enums.iter();
+    save_names.extend(
+        output.save_enums.iter().map(|x| x.ident.clone()));
+    let name = &input.name;
+    let savename = quote::format_ident!("{}Save", name);
     let output = quote::quote!{
         #(
             #save_structs
@@ -151,7 +168,27 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         #(
             #view_enums
         )*
+        #[allow(non_snake_case)]
+        pub struct #savename(
+            #(
+                pub Vec<#save_names>
+            ),*
+        );
+
+        #[allow(non_snake_case)]
+        pub struct #name {
+            #(
+                pub #save_names: Vec<#save_names>,
+            )*
+        }
+        impl #name {
+            fn new() -> Self {
+                #name {
+                    #( #save_names: Vec::new(), )*
+                }
+            }
+        }
     };
-    println!("output is {:#?}", output.to_string());
+    println!("output is {}", output.to_string());
     output.into()
 }

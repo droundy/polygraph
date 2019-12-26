@@ -1,5 +1,5 @@
 error: expected `struct` or `enum`
- --> $DIR/type-item.rs:2:9
+ --> $DIR/type-item.rs:3:9
   |
-2 |     pub type Number = u64;
+3 |     pub type Number = u64;
   |         ^^^^

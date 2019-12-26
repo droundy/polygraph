@@ -1,5 +1,5 @@
 error: schema! does not support generic types.
- --> $DIR/enum-generics.rs:2:20
+ --> $DIR/enum-generics.rs:3:20
   |
-2 |     pub enum MyEnum<T> {
+3 |     pub enum MyEnum<T> {
   |                    ^^^

@@ -1,4 +1,5 @@
 polygraph::schema!{
+    type MySchema;
     pub struct Struct<T>(T);
 }
 
