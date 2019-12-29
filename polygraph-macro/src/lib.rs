@@ -184,6 +184,10 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         output.table_structs.iter()
         .map(|x| quote::format_ident!("lookup_{}", x.ident.to_string().to_snake_case()))
         .collect();
+    let table_lookup_hashes: Vec<_> =
+        output.table_structs.iter()
+        .map(|x| quote::format_ident!("hash_{}", x.ident.to_string().to_snake_case()))
+        .collect();
     let table_types: Vec<_> =
         output.table_structs.iter()
         .map(|x| x.ident.clone())
@@ -201,14 +205,14 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #save_structs
         )*
         #(
-            #[derive(Eq,PartialEq,Hash)]
+            #[derive(Eq,PartialEq,Hash,Clone)]
             #table_structs
         )*
         #(
             #save_enums
         )*
         #(
-            #[derive(Eq,PartialEq,Hash)]
+            #[derive(Eq,PartialEq,Hash,Clone)]
             #table_enums
         )*
         #[allow(non_snake_case)]
@@ -223,11 +227,17 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #(
                 pub #table_names: Vec<#table_types>,
             )*
+            #(
+                pub #table_lookup_hashes: std::collections::HashMap<#table_types, usize>,
+            )*
         }
         impl #internalname {
             fn new() -> Self {
                 #internalname {
                     #( #table_names: Vec::new(), )*
+                    #(
+                        #table_lookup_hashes: std::collections::HashMap::new(),
+                    )*
                 }
             }
         }
@@ -272,8 +282,10 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let type_id = std::any::TypeId::of::<K>();
                     let mut keys = #keys.lock().unwrap();
                     if let Some(i) = keys.get_mut(&type_id) {
-                        i.#table_names.push(datum);
-                        Key(i.#table_names.len()-1, std::marker::PhantomData)
+                        let idx = i.#table_names.len();
+                        i.#table_names.push(datum.clone());
+                        i.#table_lookup_hashes.insert(datum, idx);
+                        Key(idx, std::marker::PhantomData)
                     } else {
                         unreachable!()
                     }
@@ -284,10 +296,12 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let type_id = std::any::TypeId::of::<K>();
                     let mut keys = #keys.lock().unwrap();
                     if let Some(i) = keys.get_mut(&type_id) {
-                        i.#table_names.iter().enumerate()
-                            .filter(|&(_,x)| x == datum)
-                            .map(|(i,x)| Key(i, std::marker::PhantomData))
-                            .next()
+                        i.#table_lookup_hashes.get(datum)
+                            .map(|&i| Key(i, std::marker::PhantomData))
+                        // i.#table_names.iter().enumerate()
+                        //     .filter(|&(_,x)| x == datum)
+                        //     .map(|(i,x)| Key(i, std::marker::PhantomData))
+                        //     .next()
                     } else {
                         unreachable!()
                     }
