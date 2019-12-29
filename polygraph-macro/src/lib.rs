@@ -245,7 +245,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        // pub struct Key<'a,K: 'a>(usize, std::marker::PhantomData<&'a K>);
+        pub struct Key<'a,K: 'a, T: 'a>(usize, std::marker::PhantomData<&'a (K,T)>);
 
         // impl<K: 'static> #name<K> {
         //     pub fn insert(&self, datum: String) -> Key<K> {
@@ -260,10 +260,19 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         //     }
         // }
 
-        // impl<K: 'static> Key<K> {
+        fn peek<K: 'static, T>(f: impl Fn(&#internalname) -> T) -> T {
+            let type_id = std::any::TypeId::of::<K>();
+            let mut keys = #keys.lock().unwrap();
+            if let Some(i) = keys.get(&type_id) {
+                f(i)
+            } else {
+                panic!("There is an invalid K")
+            }
+        }
+        // impl<a', K: 'static> Key<'a,K,T> {
         //     pub fn get(&self) -> String {
         //         let type_id = TypeId::of::<K>();
-        //         let mut keys = KEYS.lock().unwrap();
+        //         let mut keys = #keys.lock().unwrap();
         //         if let Some(DatabaseInternal(ref v)) = keys.get_mut(&type_id) {
         //             v[self.0-1].clone()
         //         } else {
