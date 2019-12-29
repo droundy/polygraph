@@ -93,24 +93,24 @@ struct SchemaOutput {
     table_enums: Vec<syn::ItemEnum>,
 }
 
-fn lifetime_a() -> syn::Generics {
-    let mut params = syn::punctuated::Punctuated::new();
-    params.push(syn::GenericParam::Lifetime(syn::LifetimeDef {
-        attrs: Vec::new(),
-        lifetime: syn::Lifetime {
-            apostrophe: proc_macro2::Span::call_site(),
-            ident: quote::format_ident!("a"),
-        },
-        colon_token: None,
-        bounds: syn::punctuated::Punctuated::new(),
-    }));
-    syn::Generics {
-        lt_token: Some(syn::Token![<](proc_macro2::Span::call_site())),
-        params,
-        gt_token: Some(syn::Token![>](proc_macro2::Span::call_site())),
-        where_clause: None,
-    }
-}
+// fn lifetime_a() -> syn::Generics {
+//     let mut params = syn::punctuated::Punctuated::new();
+//     params.push(syn::GenericParam::Lifetime(syn::LifetimeDef {
+//         attrs: Vec::new(),
+//         lifetime: syn::Lifetime {
+//             apostrophe: proc_macro2::Span::call_site(),
+//             ident: quote::format_ident!("a"),
+//         },
+//         colon_token: None,
+//         bounds: syn::punctuated::Punctuated::new(),
+//     }));
+//     syn::Generics {
+//         lt_token: Some(syn::Token![<](proc_macro2::Span::call_site())),
+//         params,
+//         gt_token: Some(syn::Token![>](proc_macro2::Span::call_site())),
+//         where_clause: None,
+//     }
+// }
 
 impl SchemaInput {
     fn process(&self) -> SchemaOutput {
@@ -262,51 +262,35 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         impl<K: 'static> #name<K> {
             #(
-                pub fn #table_inserts(&self, datum: #table_types) -> Key<K, #table_types> {
-                    // peek::<K,Key<K,Foo>>(|i| {
-                    // })
+                pub fn #table_inserts(&mut self, datum: #table_types) -> Key<K, #table_types> {
                     let type_id = std::any::TypeId::of::<K>();
                     let mut keys = #keys.lock().unwrap();
                     if let Some(i) = keys.get_mut(&type_id) {
                         i.#table_names.push(datum);
-                        Key(i.#table_names.len(), std::marker::PhantomData)
+                        Key(i.#table_names.len()-1, std::marker::PhantomData)
                     } else {
                         unreachable!()
                     }
                 }
             )*
         }
-
-        fn peek<K: 'static, T>(f: impl Fn(&#internalname) -> T) -> T {
-            let type_id = std::any::TypeId::of::<K>();
-            let mut keys = #keys.lock().unwrap();
-            if let Some(i) = keys.get(&type_id) {
-                f(i)
-            } else {
-                panic!("There is an invalid K")
-            }
-        }
-        impl<'a, K: 'static> Key<'a,K,Foo> {
-            pub fn get(&self) -> &Foo {
-                let type_id = std::any::TypeId::of::<K>();
-                let mut keys = #keys.lock().unwrap();
-                if let Some(i) = keys.get_mut(&type_id) {
-                    // The following unsafe code is sound because we
-                    // do not allow any mutable borrows when there are
-                    // keys out.
-                    unsafe { std::mem::transmute(&i.foo[self.0]) }
-                } else {
-                    unreachable!()
+        #(
+            impl<'a, K: 'static> std::ops::Deref for Key<'a,K,#table_types> {
+                type Target = #table_types;
+                fn deref(&self) -> &Self::Target {
+                    let type_id = std::any::TypeId::of::<K>();
+                    let mut keys = #keys.lock().unwrap();
+                    if let Some(i) = keys.get_mut(&type_id) {
+                        // The following unsafe code is sound because we
+                        // do not allow any mutable borrows when there are
+                        // keys out.
+                        unsafe { std::mem::transmute(&i.#table_names[self.0]) }
+                    } else {
+                        unreachable!()
+                    }
                 }
-                // let type_id = TypeId::of::<K>();
-                // let mut keys = #keys.lock().unwrap();
-                // if let Some(DatabaseInternal(ref v)) = keys.get_mut(&type_id) {
-                //     v[self.0-1].clone()
-                // } else {
-                //     unreachable!()
-                // }
             }
-        }
+        )*
     };
     println!("output is {}", output.to_string());
     output.into()
