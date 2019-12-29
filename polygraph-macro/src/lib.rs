@@ -162,6 +162,9 @@ impl SchemaInput {
 
 #[proc_macro]
 pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    use heck::ShoutySnakeCase;
+    use heck::SnakeCase;
+
     let input: SchemaInput = syn::parse_macro_input!(raw_input as SchemaInput);
     println!("input is {:#?}", input);
     let output = input.process();
@@ -170,7 +173,17 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         output.save_structs.iter().map(|x| x.ident.clone()).collect();
     let table_structs = output.table_structs.iter();
     let table_names: Vec<_> =
-        output.table_structs.iter().map(|x| x.ident.clone()).collect();
+        output.table_structs.iter()
+        .map(|x| quote::format_ident!("{}", x.ident.to_string().to_snake_case()))
+        .collect();
+    let table_inserts: Vec<_> =
+        output.table_structs.iter()
+        .map(|x| quote::format_ident!("insert_{}", x.ident.to_string().to_snake_case()))
+        .collect();
+    let table_types: Vec<_> =
+        output.table_structs.iter()
+        .map(|x| x.ident.clone())
+        .collect();
     let save_enums = output.save_enums.iter();
     let table_enums = output.table_enums.iter();
     save_names.extend(
@@ -178,7 +191,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let name = &input.name;
     let savename = quote::format_ident!("{}Save", name);
     let internalname = quote::format_ident!("Internal{}", name);
-    let keys = quote::format_ident!("KEYS_{}", name.to_string().to_uppercase());
+    let keys = quote::format_ident!("KEYS_{}", name.to_string().to_shouty_snake_case());
     let output = quote::quote!{
         #(
             #save_structs
@@ -202,13 +215,13 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         #[allow(non_snake_case)]
         pub struct #internalname {
             #(
-                pub #save_names: Vec<#table_names>,
+                pub #table_names: Vec<#table_types>,
             )*
         }
         impl #internalname {
             fn new() -> Self {
                 #internalname {
-                    #( #save_names: Vec::new(), )*
+                    #( #table_names: Vec::new(), )*
                 }
             }
         }
@@ -247,18 +260,22 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         pub struct Key<'a,K: 'a, T: 'a>(usize, std::marker::PhantomData<&'a (K,T)>);
 
-        // impl<K: 'static> #name<K> {
-        //     pub fn insert(&self, datum: String) -> Key<K> {
-        //         let type_id = TypeId::of::<K>();
-        //         let mut keys = KEYS.lock().unwrap();
-        //         if let Some(DatabaseInternal(ref mut v)) = keys.get_mut(&type_id) {
-        //             v.push(datum);
-        //             Key(v.len(), PhantomData)
-        //         } else {
-        //             unreachable!()
-        //         }
-        //     }
-        // }
+        impl<K: 'static> #name<K> {
+            #(
+                pub fn #table_inserts(&self, datum: #table_types) -> Key<K, #table_types> {
+                    // peek::<K,Key<K,Foo>>(|i| {
+                    // })
+                    let type_id = std::any::TypeId::of::<K>();
+                    let mut keys = #keys.lock().unwrap();
+                    if let Some(i) = keys.get_mut(&type_id) {
+                        i.#table_names.push(datum);
+                        Key(i.#table_names.len(), std::marker::PhantomData)
+                    } else {
+                        unreachable!()
+                    }
+                }
+            )*
+        }
 
         fn peek<K: 'static, T>(f: impl Fn(&#internalname) -> T) -> T {
             let type_id = std::any::TypeId::of::<K>();
