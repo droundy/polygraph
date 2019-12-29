@@ -89,8 +89,27 @@ struct SchemaOutput {
     name: syn::Ident,
     save_structs: Vec<syn::ItemStruct>,
     save_enums: Vec<syn::ItemEnum>,
-    view_structs: Vec<syn::ItemStruct>,
-    view_enums: Vec<syn::ItemEnum>,
+    table_structs: Vec<syn::ItemStruct>,
+    table_enums: Vec<syn::ItemEnum>,
+}
+
+fn lifetime_a() -> syn::Generics {
+    let mut params = syn::punctuated::Punctuated::new();
+    params.push(syn::GenericParam::Lifetime(syn::LifetimeDef {
+        attrs: Vec::new(),
+        lifetime: syn::Lifetime {
+            apostrophe: proc_macro2::Span::call_site(),
+            ident: quote::format_ident!("a"),
+        },
+        colon_token: None,
+        bounds: syn::punctuated::Punctuated::new(),
+    }));
+    syn::Generics {
+        lt_token: Some(syn::Token![<](proc_macro2::Span::call_site())),
+        params,
+        gt_token: Some(syn::Token![>](proc_macro2::Span::call_site())),
+        where_clause: None,
+    }
 }
 
 impl SchemaInput {
@@ -107,11 +126,12 @@ impl SchemaInput {
             x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
             x
         }).collect();
-        let view_structs: Vec<_> = self.structs.iter().map(|x| {
+        let table_structs: Vec<_> = self.structs.iter().map(|x| {
             let mut x = x.clone();
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
             });
+            // x.generics = lifetime_a();
             x
         }).collect();
 
@@ -123,7 +143,7 @@ impl SchemaInput {
             x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
             x
         }).collect();
-        let view_enums: Vec<_> = self.enums.iter().map(|x| {
+        let table_enums: Vec<_> = self.enums.iter().map(|x| {
             let mut x = x.clone();
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
@@ -133,9 +153,9 @@ impl SchemaInput {
         SchemaOutput {
             name: self.name.clone(),
             save_structs,
-            view_structs,
+            table_structs,
             save_enums,
-            view_enums,
+            table_enums,
         }
     }
 }
@@ -148,25 +168,29 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let save_structs = output.save_structs.iter();
     let mut save_names: Vec<_> =
         output.save_structs.iter().map(|x| x.ident.clone()).collect();
-    let view_structs = output.view_structs.iter();
+    let table_structs = output.table_structs.iter();
+    let table_names: Vec<_> =
+        output.table_structs.iter().map(|x| x.ident.clone()).collect();
     let save_enums = output.save_enums.iter();
-    let view_enums = output.view_enums.iter();
+    let table_enums = output.table_enums.iter();
     save_names.extend(
         output.save_enums.iter().map(|x| x.ident.clone()));
     let name = &input.name;
     let savename = quote::format_ident!("{}Save", name);
+    let internalname = quote::format_ident!("Internal{}", name);
+    let keys = quote::format_ident!("KEYS_{}", name.to_string().to_uppercase());
     let output = quote::quote!{
         #(
             #save_structs
         )*
         #(
-            #view_structs
+            #table_structs
         )*
         #(
             #save_enums
         )*
         #(
-            #view_enums
+            #table_enums
         )*
         #[allow(non_snake_case)]
         pub struct #savename(
@@ -176,24 +200,77 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         );
 
         #[allow(non_snake_case)]
-        pub struct #name {
+        pub struct #internalname {
             #(
-                pub #save_names: Vec<#save_names>,
+                pub #save_names: Vec<#table_names>,
             )*
         }
-        impl #name {
+        impl #internalname {
             fn new() -> Self {
-                #name {
+                #internalname {
                     #( #save_names: Vec::new(), )*
                 }
             }
         }
-        macro_rules! mkschema {
-            () => {{
-                let mut internal_data = #name::new();
-                
-            }}
+
+        lazy_static::lazy_static! {
+            static ref #keys: std::sync::Mutex<std::collections::HashMap<std::any::TypeId,#internalname>>
+                = std::sync::Mutex::new(std::collections::HashMap::new());
         }
+
+        #[derive(Clone,Copy,Debug)]
+        pub struct #name<K>(std::marker::PhantomData<K>);
+
+        impl<K: 'static> #name<K> {
+            // pub fn open(_path: &str) -> Result<Self, String> {
+            //     let type_id = std::any::TypeId::of::<K>();
+            //     let mut keys = #keys.lock().unwrap();
+            //     if keys.contains_key(&type_id) {
+            //         Err("Key type already used in another DB".to_string())
+            //     } else {
+            //         keys.insert(type_id, #inernalname::new());
+            //         Ok(#name(std::marker::PhantomData))
+            //     }
+            // }
+            /// Create an empty #name database.
+            pub fn new() -> Result<Self, String> {
+                let type_id = std::any::TypeId::of::<K>();
+                let mut keys = #keys.lock().unwrap();
+                if keys.contains_key(&type_id) {
+                    Err("Key type already used in another DB".to_string())
+                } else {
+                    keys.insert(type_id, #internalname::new());
+                    Ok(#name(std::marker::PhantomData))
+                }
+            }
+        }
+
+        // pub struct Key<'a,K: 'a>(usize, std::marker::PhantomData<&'a K>);
+
+        // impl<K: 'static> #name<K> {
+        //     pub fn insert(&self, datum: String) -> Key<K> {
+        //         let type_id = TypeId::of::<K>();
+        //         let mut keys = KEYS.lock().unwrap();
+        //         if let Some(DatabaseInternal(ref mut v)) = keys.get_mut(&type_id) {
+        //             v.push(datum);
+        //             Key(v.len(), PhantomData)
+        //         } else {
+        //             unreachable!()
+        //         }
+        //     }
+        // }
+
+        // impl<K: 'static> Key<K> {
+        //     pub fn get(&self) -> String {
+        //         let type_id = TypeId::of::<K>();
+        //         let mut keys = KEYS.lock().unwrap();
+        //         if let Some(DatabaseInternal(ref v)) = keys.get_mut(&type_id) {
+        //             v[self.0-1].clone()
+        //         } else {
+        //             unreachable!()
+        //         }
+        //     }
+        // }
     };
     println!("output is {}", output.to_string());
     output.into()
