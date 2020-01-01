@@ -11,6 +11,21 @@
 //! let fortytwo = db.lookup_foo(&Foo(42)).unwrap();
 //! assert_eq!(fifty.0 - fortytwo.0, 8);
 //! ```
+//!
+//! ```
+//! let db = polygraph::example::tree::Tree::<u8>::new().unwrap();
+//! ```
+
+pub mod tree {
+    polygraph_macro::schema!{
+        type Tree;
+        pub struct Person {
+            // father: Option<Key<Person>>,
+            // mother: Option<Key<Person>>,
+            name: String,
+        }
+    }
+}
 
 polygraph_macro::schema!{
     type Schema;

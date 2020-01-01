@@ -131,6 +131,42 @@ impl SchemaInput {
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
             });
+            match x.clone().fields {
+                syn::Fields::Named(n) => {
+                    if n.named.iter().any(|f| {
+                        if let syn::Type::Path(p) = &f.ty {
+                            let path_first = p.path.segments.iter().cloned().next();
+                            let path_count = p.path.segments.iter().count();
+                            println!("path is {:#?}", p);
+                            println!("path_count is {:#?}", path_count);
+                            if path_count == 1 {
+                                let ident = path_first.clone().unwrap().ident;
+                                let name = ident.to_string();
+                                println!("path_first is {:#?}", name);
+                                if name == "Option" {
+                                    let args = path_first.unwrap().arguments;
+                                    println!("args are {:#?}", args);
+                                    true
+                                } else {
+                                    name == "Key"
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    }) {
+                        // We have a Key in here!
+                        panic!("We hav a Key");
+                    }
+                }
+                syn::Fields::Unnamed(_) => {
+                }
+                syn::Fields::Unit => {
+                    // Nothing to do for this
+                }
+            }
             // x.generics = lifetime_a();
             x
         }).collect();
