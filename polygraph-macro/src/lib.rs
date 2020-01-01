@@ -286,7 +286,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         #[derive(Clone,Copy,Debug)]
         pub struct #name<K>(std::marker::PhantomData<K>);
 
-        impl<K: 'static> #name<K> {
+        impl<K: 'static + Fn()> #name<K> {
             // pub fn open(_path: &str) -> Result<Self, String> {
             //     let type_id = std::any::TypeId::of::<K>();
             //     let mut keys = #keys.lock().unwrap();
@@ -298,7 +298,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             //     }
             // }
             /// Create an empty #name database.
-            pub fn new() -> Result<Self, String> {
+            pub fn new(_: K) -> Result<Self, String> {
                 let type_id = std::any::TypeId::of::<K>();
                 let mut keys = #keys.lock().unwrap();
                 if keys.contains_key(&type_id) {
