@@ -198,7 +198,7 @@ impl SchemaInput {
 
 #[proc_macro]
 pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    use heck::ShoutySnakeCase;
+    // use heck::ShoutySnakeCase;
     use heck::SnakeCase;
 
     let input: SchemaInput = syn::parse_macro_input!(raw_input as SchemaInput);
@@ -234,8 +234,6 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         output.save_enums.iter().map(|x| x.ident.clone()));
     let name = &input.name;
     let savename = quote::format_ident!("{}Save", name);
-    let internalname = quote::format_ident!("Internal{}", name);
-    let keys = quote::format_ident!("KEYS_{}", name.to_string().to_shouty_snake_case());
     let output = quote::quote!{
         #(
             #save_structs
@@ -259,105 +257,55 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         );
 
         #[allow(non_snake_case)]
-        pub struct #internalname {
+        pub struct #name<K> {
             #(
                 pub #table_names: Vec<#table_types>,
             )*
             #(
                 pub #table_lookup_hashes: std::collections::HashMap<#table_types, usize>,
             )*
+            phantom: std::marker::PhantomData<K>,
         }
-        impl #internalname {
-            fn new() -> Self {
-                #internalname {
+        impl<K: Fn()> #name<K> {
+            /// Create an empty #name database.
+            pub fn new(_: K) -> Self {
+                #name {
                     #( #table_names: Vec::new(), )*
                     #(
                         #table_lookup_hashes: std::collections::HashMap::new(),
                     )*
+                    phantom: std::marker::PhantomData,
                 }
             }
         }
 
-        lazy_static::lazy_static! {
-            static ref #keys: std::sync::Mutex<std::collections::HashMap<std::any::TypeId,#internalname>>
-                = std::sync::Mutex::new(std::collections::HashMap::new());
-        }
-
-        #[derive(Clone,Copy,Debug)]
-        pub struct #name<K>(std::marker::PhantomData<K>);
-
-        impl<K: 'static + Fn()> #name<K> {
-            // pub fn open(_path: &str) -> Result<Self, String> {
-            //     let type_id = std::any::TypeId::of::<K>();
-            //     let mut keys = #keys.lock().unwrap();
-            //     if keys.contains_key(&type_id) {
-            //         Err("Key type already used in another DB".to_string())
-            //     } else {
-            //         keys.insert(type_id, #inernalname::new());
-            //         Ok(#name(std::marker::PhantomData))
-            //     }
-            // }
-            /// Create an empty #name database.
-            pub fn new(_: K) -> Result<Self, String> {
-                let type_id = std::any::TypeId::of::<K>();
-                let mut keys = #keys.lock().unwrap();
-                if keys.contains_key(&type_id) {
-                    Err("Key type already used in another DB".to_string())
-                } else {
-                    keys.insert(type_id, #internalname::new());
-                    Ok(#name(std::marker::PhantomData))
-                }
-            }
-        }
-
-        pub struct Key<'a,K: 'a, T: 'a>(usize, std::marker::PhantomData<&'a (K,T)>);
+        #[derive(Clone,Copy,Eq,PartialEq,Hash)]
+        pub struct Key<K, T>(usize, std::marker::PhantomData<(K,T)>);
 
         impl<K: 'static> #name<K> {
             #(
                 pub fn #table_inserts(&mut self, datum: #table_types) -> Key<K, #table_types> {
-                    let type_id = std::any::TypeId::of::<K>();
-                    let mut keys = #keys.lock().unwrap();
-                    if let Some(i) = keys.get_mut(&type_id) {
-                        let idx = i.#table_names.len();
-                        i.#table_names.push(datum.clone());
-                        i.#table_lookup_hashes.insert(datum, idx);
-                        Key(idx, std::marker::PhantomData)
-                    } else {
-                        unreachable!()
-                    }
+                    let idx = self.#table_names.len();
+                    self.#table_names.push(datum.clone());
+                    self.#table_lookup_hashes.insert(datum, idx);
+                    Key(idx, std::marker::PhantomData)
                 }
             )*
             #(
                 pub fn #table_lookups(&self, datum: &#table_types) -> Option<Key<K, #table_types>> {
-                    let type_id = std::any::TypeId::of::<K>();
-                    let mut keys = #keys.lock().unwrap();
-                    if let Some(i) = keys.get_mut(&type_id) {
-                        i.#table_lookup_hashes.get(datum)
-                            .map(|&i| Key(i, std::marker::PhantomData))
-                        // i.#table_names.iter().enumerate()
-                        //     .filter(|&(_,x)| x == datum)
-                        //     .map(|(i,x)| Key(i, std::marker::PhantomData))
-                        //     .next()
-                    } else {
-                        unreachable!()
-                    }
+                    self.#table_lookup_hashes.get(datum)
+                        .map(|&i| Key(i, std::marker::PhantomData))
+                    // self.0.#table_names.iter().enumerate()
+                    //     .filter(|&(_,x)| x == datum)
+                    //     .map(|(i,x)| Key(i, std::marker::PhantomData))
+                    //     .next()
                 }
             )*
         }
         #(
-            impl<'a, K: 'static> std::ops::Deref for Key<'a,K,#table_types> {
-                type Target = #table_types;
-                fn deref(&self) -> &Self::Target {
-                    let type_id = std::any::TypeId::of::<K>();
-                    let mut keys = #keys.lock().unwrap();
-                    if let Some(i) = keys.get_mut(&type_id) {
-                        // The following unsafe code is sound because we
-                        // do not allow any mutable borrows when there are
-                        // keys out.
-                        unsafe { std::mem::transmute(&i.#table_names[self.0]) }
-                    } else {
-                        unreachable!()
-                    }
+            impl<K> Key<K,#table_types> {
+                pub fn d<'a,'b>(&'a self, database: &'b #name<K>) -> &'b #table_types {
+                    &database.#table_names[self.0]
                 }
             }
         )*

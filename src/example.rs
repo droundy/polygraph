@@ -1,19 +1,19 @@
 //! # Example
 //! ```
 //! use polygraph::example::{Schema, Foo, Test};
-//! let mut db = Schema::new(|| ()).unwrap();
+//! let mut db = Schema::new(|| ());
 //! let fortytwo = db.insert_foo(Foo(42));
-//! assert_eq!(fortytwo.0, 42);
+//! assert_eq!(fortytwo.d(&db).0, 42); println!("about to add 50");
 //! let fifty = db.insert_foo(Foo(50));
 //! // We can't keep using the fifty and fortytwo above, because they mutably
 //! // borrowed our `db`.  But we can now look them both up and use them both.
 //! let fifty = db.lookup_foo(&Foo(50)).unwrap();
 //! let fortytwo = db.lookup_foo(&Foo(42)).unwrap();
-//! assert_eq!(fifty.0 - fortytwo.0, 8);
+//! assert_eq!(fifty.d(&db).0 - fortytwo.d(&db).0, 8);
 //! ```
 //!
 //! ```
-//! let db = polygraph::example::tree::Tree::new(|| ()).unwrap();
+//! let db = polygraph::example::tree::Tree::new(|| ());
 //! ```
 
 pub mod tree {
