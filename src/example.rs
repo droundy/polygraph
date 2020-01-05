@@ -19,7 +19,9 @@
 pub mod tree {
     polygraph_macro::schema!{
         type Tree;
+        pub struct Surname(String);
         pub struct Person {
+            // surname: Key<Surname>,
             // father: Option<Key<Person>>,
             // mother: Option<Key<Person>>,
             name: String,

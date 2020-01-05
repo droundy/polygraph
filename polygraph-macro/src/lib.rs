@@ -112,8 +112,87 @@ struct SchemaOutput {
 //     }
 // }
 
+#[derive(Debug,Eq,PartialEq)]
+enum KeyType {
+    OptionKey(syn::Ident),
+}
+
+fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
+    if let syn::Type::Path(p) = t {
+        let path_first = p.path.segments.first().cloned();
+        let path_count = p.path.segments.len();
+        println!("path is {:#?}", p);
+        println!("path_count is {:#?}", path_count);
+        if path_count == 1 {
+            let ident = path_first.clone().unwrap().ident;
+            let name = ident.to_string();
+            println!("path_first is {:#?}", name);
+            if name == "Option" {
+                let args = path_first.unwrap().arguments;
+                println!("args are {:#?}", args);
+                unimplemented!()
+            } else {
+                if name == "Key" {
+                    if let syn::PathArguments::AngleBracketed(args) = path_first.unwrap().arguments {
+                        if args.args.len() != 1 {
+                            return Err(syn::Error::new_spanned(
+                                t,
+                                "Key should have just one type argument")
+                            );
+                        }
+                        use syn::{GenericArgument, Type};
+                        if let GenericArgument::Type(Type::Path(ap)) = args.args.first().unwrap() {
+                            if ap.path.segments.len() != 1 {
+                                return Err(syn::Error::new_spanned(
+                                    t,
+                                    "Key should have a simple type argument")
+                                );
+                            }
+                            let tp = ap.path.segments.first().unwrap();
+                            if !tp.arguments.is_empty() {
+                                Err(syn::Error::new_spanned(tp.arguments.clone(),
+                                                            "Key type should be a simple table name"))
+                            } else {
+                                Ok(Some(KeyType::OptionKey(tp.ident.clone())))
+                            }
+                        } else {
+                            Err(syn::Error::new_spanned(
+                                t,
+                                "Key should have a simple type argument")
+                            )
+                        }
+                    } else {
+                        Err(syn::Error::new_spanned(
+                            t,
+                            "Key should be Key<ATableType>")
+                        )
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+fn parse_fields(f: syn::FieldsNamed)
+                -> Result<std::collections::HashMap<syn::Ident,KeyType>, syn::Error>
+{
+    let mut keymap = std::collections::HashMap::new();
+    for n in f.named.into_iter() {
+        if let Some(kt) = parse_keytype(&n.ty)? {
+            keymap.insert(n.ident.unwrap(), kt);
+        }
+    }
+    Ok(keymap)
+}
+
 impl SchemaInput {
-    fn process(&self) -> SchemaOutput {
+    fn process(&self) -> Result<SchemaOutput, syn::Error> {
         let mut tables = std::collections::HashSet::new();
         tables.extend(self.structs.iter().map(|x| x.ident.clone()));
         tables.extend(self.enums.iter().map(|x| x.ident.clone()));
@@ -126,39 +205,17 @@ impl SchemaInput {
             x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
             x
         }).collect();
-        let table_structs: Vec<_> = self.structs.iter().map(|x| {
-            let mut x = x.clone();
+        let mut table_structs = Vec::with_capacity(self.structs.len());
+        for mut x in self.structs.iter().cloned() {
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
             });
             match x.clone().fields {
                 syn::Fields::Named(n) => {
-                    if n.named.iter().any(|f| {
-                        if let syn::Type::Path(p) = &f.ty {
-                            let path_first = p.path.segments.iter().cloned().next();
-                            let path_count = p.path.segments.iter().count();
-                            println!("path is {:#?}", p);
-                            println!("path_count is {:#?}", path_count);
-                            if path_count == 1 {
-                                let ident = path_first.clone().unwrap().ident;
-                                let name = ident.to_string();
-                                println!("path_first is {:#?}", name);
-                                if name == "Option" {
-                                    let args = path_first.unwrap().arguments;
-                                    println!("args are {:#?}", args);
-                                    true
-                                } else {
-                                    name == "Key"
-                                }
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    }) {
-                        // We have a Key in here!
-                        panic!("We hav a Key");
+                    let keymap = parse_fields(n)?;
+                    for (f,k) in keymap.iter() {
+                        println!("{}: {:?}", f.to_string(), k);
+                        panic!("what to do now? {}: {:?}", f.to_string(), k);
                     }
                 }
                 syn::Fields::Unnamed(_) => {
@@ -168,8 +225,8 @@ impl SchemaInput {
                 }
             }
             // x.generics = lifetime_a();
-            x
-        }).collect();
+            table_structs.push(x)
+        }
 
         let save_enums: Vec<_> = self.enums.iter().map(|x| {
             let mut x = x.clone();
@@ -186,13 +243,13 @@ impl SchemaInput {
             });
             x
         }).collect();
-        SchemaOutput {
+        Ok(SchemaOutput {
             name: self.name.clone(),
             save_structs,
             table_structs,
             save_enums,
             table_enums,
-        }
+        })
     }
 }
 
@@ -203,7 +260,12 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let input: SchemaInput = syn::parse_macro_input!(raw_input as SchemaInput);
     println!("input is {:#?}", input);
-    let output = input.process();
+    let output = match input.process() {
+        Err(e) => {
+            return e.to_compile_error().into();
+        }
+        Ok(v) => v,
+    };
     let save_structs = output.save_structs.iter();
     let mut save_names: Vec<_> =
         output.save_structs.iter().map(|x| x.ident.clone()).collect();

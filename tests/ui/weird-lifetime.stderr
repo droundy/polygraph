@@ -1,0 +1,5 @@
+error: Key type should be a simple table name
+ --> $DIR/weird-lifetime.rs:5:29
+  |
+5 |         surname: Key<Surname<'a>>,
+  |                             ^^^^^
