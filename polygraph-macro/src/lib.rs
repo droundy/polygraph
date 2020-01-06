@@ -117,23 +117,23 @@ enum KeyType {
     OptionKey(syn::Ident),
 }
 
-fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
+fn parse_keytype(t: &mut syn::Type) -> Result<Option<KeyType>, syn::Error> {
     if let syn::Type::Path(p) = t {
-        let path_first = p.path.segments.first().cloned();
         let path_count = p.path.segments.len();
         println!("path is {:#?}", p);
         println!("path_count is {:#?}", path_count);
         if path_count == 1 {
-            let ident = path_first.clone().unwrap().ident;
+            let ident = p.path.segments.last().unwrap().clone().ident;
+            let path_only = p.path.segments.last_mut().unwrap();
             let name = ident.to_string();
-            println!("path_first is {:#?}", name);
+            println!("path_only is {:#?}", name);
             if name == "Option" {
-                let args = path_first.unwrap().arguments;
+                let args = path_only.clone().arguments;
                 println!("args are {:#?}", args);
                 unimplemented!()
             } else {
                 if name == "Key" {
-                    if let syn::PathArguments::AngleBracketed(args) = path_first.unwrap().arguments {
+                    if let syn::PathArguments::AngleBracketed(args) = &mut path_only.arguments {
                         if args.args.len() != 1 {
                             return Err(syn::Error::new_spanned(
                                 t,
@@ -153,7 +153,12 @@ fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
                                 Err(syn::Error::new_spanned(tp.arguments.clone(),
                                                             "Key type should be a simple table name"))
                             } else {
-                                Ok(Some(KeyType::OptionKey(tp.ident.clone())))
+                                let i = tp.ident.clone();
+                                args.args = [syn::parse_quote!{K},
+                                             args.args.first().unwrap().clone()]
+                                    .into_iter().cloned().collect();
+                                println!("new args: {:?}", args.args);
+                                Ok(Some(KeyType::OptionKey(i)))
                             }
                         } else {
                             Err(syn::Error::new_spanned(
@@ -179,13 +184,13 @@ fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
     }
 }
 
-fn parse_fields(f: syn::FieldsNamed)
+fn parse_fields(f: &mut syn::FieldsNamed)
                 -> Result<std::collections::HashMap<syn::Ident,KeyType>, syn::Error>
 {
     let mut keymap = std::collections::HashMap::new();
-    for n in f.named.into_iter() {
-        if let Some(kt) = parse_keytype(&n.ty)? {
-            keymap.insert(n.ident.unwrap(), kt);
+    for n in f.named.iter_mut() {
+        if let Some(kt) = parse_keytype(&mut n.ty)? {
+            keymap.insert(n.ident.clone().unwrap(), kt);
         }
     }
     Ok(keymap)
@@ -210,12 +215,17 @@ impl SchemaInput {
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
             });
-            match x.clone().fields {
+            match &mut x.fields {
                 syn::Fields::Named(n) => {
                     let keymap = parse_fields(n)?;
+                    if keymap.len() > 0 {
+                        // We have keys in here, so we will need this
+                        // struct to be generic over database K.
+                        x.generics = syn::parse_quote!{<K>}
+                    }
                     for (f,k) in keymap.iter() {
                         println!("{}: {:?}", f.to_string(), k);
-                        panic!("what to do now? {}: {:?}", f.to_string(), k);
+                        // panic!("what to do now? {}: {:?}", f.to_string(), k);
                     }
                 }
                 syn::Fields::Unnamed(_) => {
@@ -266,9 +276,9 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
         Ok(v) => v,
     };
-    let save_structs = output.save_structs.iter();
-    let mut save_names: Vec<_> =
-        output.save_structs.iter().map(|x| x.ident.clone()).collect();
+    // let save_structs = output.save_structs.iter();
+    // let mut save_names: Vec<_> =
+    //     output.save_structs.iter().map(|x| x.ident.clone()).collect();
     let table_structs = output.table_structs.iter();
     let table_names: Vec<_> =
         output.table_structs.iter()
@@ -280,43 +290,51 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .collect();
     let table_lookups: Vec<_> =
         output.table_structs.iter()
+        // only allow lookups on non-generic fields
+        .filter(|x| x.generics.params.len() == 0)
         .map(|x| quote::format_ident!("lookup_{}", x.ident.to_string().to_snake_case()))
         .collect();
     let table_lookup_hashes: Vec<_> =
         output.table_structs.iter()
+        // only allow lookups on non-generic fields
+        .filter(|x| x.generics.params.len() == 0)
         .map(|x| quote::format_ident!("hash_{}", x.ident.to_string().to_snake_case()))
         .collect();
-    let table_types: Vec<_> =
+    let table_types: Vec<syn::PathSegment> =
         output.table_structs.iter()
-        .map(|x| x.ident.clone())
+        .map(|x| {
+            let i = x.ident.clone();
+            let g = x.generics.clone();
+            syn::parse_quote!{#i#g}
+        })
         .collect();
-    let save_enums = output.save_enums.iter();
+    // let save_enums = output.save_enums.iter();
     let table_enums = output.table_enums.iter();
-    save_names.extend(
-        output.save_enums.iter().map(|x| x.ident.clone()));
+    // save_names.extend(
+    //     output.save_enums.iter().map(|x| x.ident.clone()));
     let name = &input.name;
-    let savename = quote::format_ident!("{}Save", name);
+    // let savename = quote::format_ident!("{}Save", name);
     let output = quote::quote!{
-        #(
-            #save_structs
-        )*
+        // #(
+        //     #save_structs
+        // )*
+        // #(
+        //     #save_enums
+        // )*
         #(
             #[derive(Eq,PartialEq,Hash,Clone)]
             #table_structs
         )*
         #(
-            #save_enums
-        )*
-        #(
             #[derive(Eq,PartialEq,Hash,Clone)]
             #table_enums
         )*
-        #[allow(non_snake_case)]
-        pub struct #savename(
-            #(
-                pub Vec<#save_names>
-            ),*
-        );
+        // #[allow(non_snake_case)]
+        // pub struct #savename(
+        //     #(
+        //         pub Vec<#save_names>
+        //     ),*
+        // );
 
         #[allow(non_snake_case)]
         pub struct #name<K> {
@@ -372,6 +390,6 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         )*
     };
-    println!("output is {}", output.to_string());
+    println!("\n\n\noutput is\n\n{}", output.to_string());
     output.into()
 }

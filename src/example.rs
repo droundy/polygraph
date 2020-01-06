@@ -21,59 +21,13 @@ pub mod tree {
         type Tree;
         pub struct Surname(String);
         pub struct Person {
-            // surname: Key<Surname>,
+            surname: Key<Surname>,
             // father: Option<Key<Person>>,
             // mother: Option<Key<Person>>,
             name: String,
         }
     }
 }
-
-struct Witness<F>(std::marker::PhantomData<F>);
-
-impl<F> std::fmt::Debug for Witness<F> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.write_str("Witness")
-    }
-}
-impl<F> PartialEq for Witness<F> {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-
-fn test<F: FnMut()>(mut f: F) -> Witness<F> {
-    println!("running test");
-    f();
-    Witness(std::marker::PhantomData)
-}
-
-impl<F: 'static> Witness<F> {
-    fn id(&self) -> std::any::TypeId {
-        std::any::TypeId::of::<F>()
-    }
-}
-
-fn get_id() -> std::any::TypeId {
-    let mut x = 5;
-    test(move || { x += 1; }).id()
-}
-
-#[test]
-fn testing() {
-    assert_eq!(get_id(), get_id());
-    // let w1 = test(|| ());
-    // let w2 = test(|| ());
-    // assert_eq!(w1.id(), w2.id());
-    // assert_eq!(w1, w2);
-    let f = || ();
-    let w1 = test(f);
-    let w2 = test(f);
-    assert_eq!(w1, w2);
-    assert_eq!(w1.id(), w2.id());
-}
-
-
 
 polygraph_macro::schema!{
     type Schema;
