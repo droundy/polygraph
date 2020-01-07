@@ -32,12 +32,22 @@ pub mod tree {
     fn test() {
         let mut db = Tree::new(|| ());
         let roundy = db.insert_surname(Surname("Roundy".to_string()));
-        let _ = roundy.clone();
+        let maiden_name = db.insert_surname(Surname("Maiden".to_string()));
         let me = db.insert_person(Person {
             surname: roundy,
             name: "David".to_string()
         });
-        me.clone();
+        let wife = db.insert_person(Person {
+            surname: maiden_name,
+            name: "Monica".to_string()
+        });
+        assert_eq!(me.d(&db).surname.d(&db).0, "Roundy");
+        assert_eq!(wife.d(&db).surname.d(&db).0, "Maiden");
+        db.set_person(wife, Person {
+            surname: roundy,
+            name: "Monica".to_string()
+        });
+        assert_eq!(wife.d(&db).surname.d(&db).0, "Roundy");
     }
 }
 

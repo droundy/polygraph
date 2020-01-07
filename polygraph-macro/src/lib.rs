@@ -331,6 +331,10 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         key_structs.iter()
         .map(|x| quote::format_ident!("insert_{}", x.ident.to_string().to_snake_case()))
         .collect();
+    let key_sets: Vec<_> =
+        key_structs.iter()
+        .map(|x| quote::format_ident!("set_{}", x.ident.to_string().to_snake_case()))
+        .collect();
     let key_types: Vec<syn::PathSegment> =
         key_structs.iter()
         .map(|x| {
@@ -386,8 +390,14 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        #[derive(Clone,Copy,Eq,PartialEq,Hash)]
+        #[derive(Eq,PartialEq,Hash)]
         pub struct Key<K, T>(usize, std::marker::PhantomData<(K,T)>);
+        impl<K,T> Clone for Key<K,T> {
+            fn clone(&self) -> Self {
+                Key(self.0, std::marker::PhantomData)
+            }
+        }
+        impl<K,T> Copy for Key<K,T> {}
 
         impl<K: 'static> #name<K> {
             #(
@@ -403,6 +413,10 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let idx = self.#key_names.len();
                     self.#key_names.push(datum);
                     Key(idx, std::marker::PhantomData)
+                }
+                pub fn #key_sets(&mut self, k: Key<K, #key_types>, datum: #key_types) {
+                    let old = std::mem::replace(&mut self.#key_names[k.0], datum);
+                    // FIXME need to modify any back references.
                 }
             )*
             #(
