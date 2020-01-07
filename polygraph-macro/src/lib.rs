@@ -154,7 +154,7 @@ fn parse_keytype(t: &mut syn::Type) -> Result<Option<KeyType>, syn::Error> {
                                                             "Key type should be a simple table name"))
                             } else {
                                 let i = tp.ident.clone();
-                                args.args = [syn::parse_quote!{K},
+                                args.args = [// syn::parse_quote!{K},
                                              args.args.first().unwrap().clone()]
                                     .into_iter().cloned().collect();
                                 println!("new args: {:?}", args.args);
@@ -218,11 +218,6 @@ impl SchemaInput {
             match &mut x.fields {
                 syn::Fields::Named(n) => {
                     let keymap = parse_fields(n)?;
-                    if keymap.len() > 0 {
-                        // We have keys in here, so we will need this
-                        // struct to be generic over database K.
-                        x.generics = syn::parse_quote!{<K>}
-                    }
                     for (f,k) in keymap.iter() {
                         println!("{}: {:?}", f.to_string(), k);
                         // panic!("what to do now? {}: {:?}", f.to_string(), k);
@@ -290,6 +285,19 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let pod_structs: Vec<_> = output.table_structs.iter()
         .filter(|x| x.generics.params.len() == 0)
         .cloned().collect();
+    let pod_query_structs: Vec<_> = pod_structs.iter().cloned()
+        .map(|mut x| {
+            x.ident = quote::format_ident!("{}Query", x.ident);
+            x
+        })
+        .collect();
+    let pod_query_types: Vec<syn::PathSegment> =
+        pod_query_structs.iter()
+        .map(|x| {
+            let i = x.ident.clone();
+            syn::parse_quote!{#i}
+        })
+        .collect();
 
     let pod_names: Vec<_> =
         pod_structs.iter()
@@ -322,6 +330,20 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let key_structs: Vec<_> = output.table_structs.iter()
         .filter(|x| x.generics.params.len() != 0)
         .cloned().collect();
+    let key_query_structs: Vec<_> = key_structs.iter().cloned()
+        .map(|mut x| {
+            x.ident = quote::format_ident!("{}Query", x.ident);
+            x
+        })
+        .collect();
+    let key_query_types: Vec<syn::PathSegment> =
+        key_query_structs.iter()
+        .map(|x| {
+            let i = x.ident.clone();
+            let g = x.generics.clone();
+            syn::parse_quote!{#i#g}
+        })
+        .collect();
 
     let key_names: Vec<_> =
         key_structs.iter()
@@ -351,22 +373,79 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let name = &input.name;
     // let savename = quote::format_ident!("{}Save", name);
     let output = quote::quote!{
+        trait Query: std::ops::Deref {
+            fn new(val: Self::Target) -> Self;
+        }
+        trait HasQuery {
+            type Query: Query<Target=Self>;
+        }
         #(
+            #[repr(C)]
             #[derive(Eq,PartialEq,Hash,Clone)]
             #pod_structs
+            #[repr(C)]
+            #[derive(Eq,PartialEq,Hash,Clone)]
+            #pod_query_structs
+
+            impl std::ops::Deref for #pod_query_types {
+                type Target = #pod_types;
+                fn deref(&self) -> &Self::Target {
+                    unsafe { &*(self as *const Self as *const Self::Target) }
+                }
+            }
+            impl Query for #pod_query_types {
+                fn new(value: Self::Target) -> Self {
+                    // First pad the value with zeroes, then transmute
+                    // to the query type.  This relies on zero bytes
+                    // being valid values for all extra fields in the
+                    // query struct.
+                    let x = (value,
+                             [0u8; std::mem::size_of::<Self>() - std::mem::size_of::<Self::Target>()]);
+                    unsafe { std::mem::transmute(x) }
+                }
+            }
+            impl HasQuery for #pod_types {
+                type Query = #pod_query_types;
+            }
         )*
         #(
+            #[repr(C)]
             #[derive(Clone)]
             #key_structs
+            #[repr(C)]
+            #[derive(Clone)]
+            #key_query_structs
+
+            impl std::ops::Deref for #key_query_types {
+                type Target = #key_types;
+                fn deref(&self) -> &Self::Target {
+                    unsafe { &*(self as *const Self as *const Self::Target) }
+                }
+            }
+            impl Query for #key_query_types {
+                fn new(value: Self::Target) -> Self {
+                    // First pad the value with zeroes, then transmute
+                    // to the query type.  This relies on zero bytes
+                    // being valid values for all extra fields in the
+                    // query struct.
+                    // unimplemented!()
+                    let x = (value,
+                             [0u8; std::mem::size_of::<Self>() - std::mem::size_of::<Self::Target>()]);
+                    unsafe { std::mem::transmute(x) }
+                }
+            }
+            impl HasQuery for #key_types {
+                type Query = #key_query_types;
+            }
         )*
         #(
             #[derive(Eq,PartialEq,Hash,Clone)]
             #table_enums
         )*
 
-        pub struct #name<K> {
+        pub struct #name {
             #(
-                pub #pod_names: Vec<#pod_types>,
+                pub #pod_names: Vec<#pod_query_types>,
             )*
             #(
                 pub #key_names: Vec<#key_types>,
@@ -374,53 +453,51 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #(
                 pub #pod_lookup_hashes: std::collections::HashMap<#pod_types, usize>,
             )*
-            phantom: std::marker::PhantomData<K>,
         }
-        impl<K: Fn()> #name<K> {
+        impl #name {
             /// Create an empty #name database.
-            pub fn new(_: K) -> Self {
+            pub fn new() -> Self {
                 #name {
                     #( #pod_names: Vec::new(), )*
                     #( #key_names: Vec::new(), )*
                     #(
                         #pod_lookup_hashes: std::collections::HashMap::new(),
                     )*
-                    phantom: std::marker::PhantomData,
                 }
             }
         }
 
         #[derive(Eq,PartialEq,Hash)]
-        pub struct Key<K, T>(usize, std::marker::PhantomData<(K,T)>);
-        impl<K,T> Clone for Key<K,T> {
+        pub struct Key<T>(usize, std::marker::PhantomData<T>);
+        impl<T> Clone for Key<T> {
             fn clone(&self) -> Self {
                 Key(self.0, std::marker::PhantomData)
             }
         }
-        impl<K,T> Copy for Key<K,T> {}
+        impl<T> Copy for Key<T> {}
 
-        impl<K: 'static> #name<K> {
+        impl #name {
             #(
-                pub fn #pod_inserts(&mut self, datum: #pod_types) -> Key<K, #pod_types> {
+                pub fn #pod_inserts(&mut self, datum: #pod_types) -> Key<#pod_types> {
                     let idx = self.#pod_names.len();
-                    self.#pod_names.push(datum.clone());
+                    self.#pod_names.push(#pod_query_types::new(datum.clone()));
                     self.#pod_lookup_hashes.insert(datum, idx);
                     Key(idx, std::marker::PhantomData)
                 }
             )*
             #(
-                pub fn #key_inserts(&mut self, datum: #key_types) -> Key<K, #key_types> {
+                pub fn #key_inserts(&mut self, datum: #key_types) -> Key<#key_types> {
                     let idx = self.#key_names.len();
                     self.#key_names.push(datum);
                     Key(idx, std::marker::PhantomData)
                 }
-                pub fn #key_sets(&mut self, k: Key<K, #key_types>, datum: #key_types) {
+                pub fn #key_sets(&mut self, k: Key<#key_types>, datum: #key_types) {
                     let old = std::mem::replace(&mut self.#key_names[k.0], datum);
                     // FIXME need to modify any back references.
                 }
             )*
             #(
-                pub fn #pod_lookups(&self, datum: &#pod_types) -> Option<Key<K, #pod_types>> {
+                pub fn #pod_lookups(&self, datum: &#pod_types) -> Option<Key<#pod_types>> {
                     self.#pod_lookup_hashes.get(datum)
                         .map(|&i| Key(i, std::marker::PhantomData))
                     // self.0.#table_names.iter().enumerate()
@@ -431,15 +508,15 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             )*
         }
         #(
-            impl<K> Key<K,#pod_types> {
-                pub fn d<'a,'b>(&'a self, database: &'b #name<K>) -> &'b #pod_types {
+            impl Key<#pod_types> {
+                pub fn d<'a,'b>(&'a self, database: &'b #name) -> &'b #pod_query_types {
                     &database.#pod_names[self.0]
                 }
             }
         )*
         #(
-            impl<K> Key<K,#key_types> {
-                pub fn d<'a,'b>(&'a self, database: &'b #name<K>) -> &'b #key_types {
+            impl Key<#key_types> {
+                pub fn d<'a,'b>(&'a self, database: &'b #name) -> &'b #key_types {
                     &database.#key_names[self.0]
                 }
             }
