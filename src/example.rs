@@ -27,6 +27,18 @@ pub mod tree {
             name: String,
         }
     }
+
+    #[test]
+    fn test() {
+        let mut db = Tree::new(|| ());
+        let roundy = db.insert_surname(Surname("Roundy".to_string()));
+        let _ = roundy.clone();
+        let me = db.insert_person(Person {
+            surname: roundy,
+            name: "David".to_string()
+        });
+        me.clone();
+    }
 }
 
 polygraph_macro::schema!{

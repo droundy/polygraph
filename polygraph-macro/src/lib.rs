@@ -279,35 +279,67 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // let save_structs = output.save_structs.iter();
     // let mut save_names: Vec<_> =
     //     output.save_structs.iter().map(|x| x.ident.clone()).collect();
-    let table_structs = output.table_structs.iter();
-    let table_names: Vec<_> =
-        output.table_structs.iter()
+
+    // Here "pod" means "plain old data", and refers to tables that
+    // have no keys in them.  When such tables exist, there is just
+    // one possible reason: We want to create a back hash so we can
+    // quickly search for all things that reference a given value,
+    // which means that we need to effectively intern those values.
+    // This also may save size, if the same large value is used many
+    // times in the database (essentially interning).
+    let pod_structs: Vec<_> = output.table_structs.iter()
+        .filter(|x| x.generics.params.len() == 0)
+        .cloned().collect();
+
+    let pod_names: Vec<_> =
+        pod_structs.iter()
         .map(|x| quote::format_ident!("{}", x.ident.to_string().to_snake_case()))
         .collect();
-    let table_inserts: Vec<_> =
-        output.table_structs.iter()
+    let pod_inserts: Vec<_> =
+        pod_structs.iter()
         .map(|x| quote::format_ident!("insert_{}", x.ident.to_string().to_snake_case()))
         .collect();
-    let table_lookups: Vec<_> =
-        output.table_structs.iter()
+    let pod_lookups: Vec<_> =
+        pod_structs.iter()
         // only allow lookups on non-generic fields
         .filter(|x| x.generics.params.len() == 0)
         .map(|x| quote::format_ident!("lookup_{}", x.ident.to_string().to_snake_case()))
         .collect();
-    let table_lookup_hashes: Vec<_> =
-        output.table_structs.iter()
+    let pod_lookup_hashes: Vec<_> =
+        pod_structs.iter()
         // only allow lookups on non-generic fields
         .filter(|x| x.generics.params.len() == 0)
         .map(|x| quote::format_ident!("hash_{}", x.ident.to_string().to_snake_case()))
         .collect();
-    let table_types: Vec<syn::PathSegment> =
-        output.table_structs.iter()
+    let pod_types: Vec<syn::PathSegment> =
+        pod_structs.iter()
+        .map(|x| {
+            let i = x.ident.clone();
+            syn::parse_quote!{#i}
+        })
+        .collect();
+
+    let key_structs: Vec<_> = output.table_structs.iter()
+        .filter(|x| x.generics.params.len() != 0)
+        .cloned().collect();
+
+    let key_names: Vec<_> =
+        key_structs.iter()
+        .map(|x| quote::format_ident!("{}", x.ident.to_string().to_snake_case()))
+        .collect();
+    let key_inserts: Vec<_> =
+        key_structs.iter()
+        .map(|x| quote::format_ident!("insert_{}", x.ident.to_string().to_snake_case()))
+        .collect();
+    let key_types: Vec<syn::PathSegment> =
+        key_structs.iter()
         .map(|x| {
             let i = x.ident.clone();
             let g = x.generics.clone();
             syn::parse_quote!{#i#g}
         })
         .collect();
+
     // let save_enums = output.save_enums.iter();
     let table_enums = output.table_enums.iter();
     // save_names.extend(
@@ -315,34 +347,28 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let name = &input.name;
     // let savename = quote::format_ident!("{}Save", name);
     let output = quote::quote!{
-        // #(
-        //     #save_structs
-        // )*
-        // #(
-        //     #save_enums
-        // )*
         #(
             #[derive(Eq,PartialEq,Hash,Clone)]
-            #table_structs
+            #pod_structs
+        )*
+        #(
+            #[derive(Clone)]
+            #key_structs
         )*
         #(
             #[derive(Eq,PartialEq,Hash,Clone)]
             #table_enums
         )*
-        // #[allow(non_snake_case)]
-        // pub struct #savename(
-        //     #(
-        //         pub Vec<#save_names>
-        //     ),*
-        // );
 
-        #[allow(non_snake_case)]
         pub struct #name<K> {
             #(
-                pub #table_names: Vec<#table_types>,
+                pub #pod_names: Vec<#pod_types>,
             )*
             #(
-                pub #table_lookup_hashes: std::collections::HashMap<#table_types, usize>,
+                pub #key_names: Vec<#key_types>,
+            )*
+            #(
+                pub #pod_lookup_hashes: std::collections::HashMap<#pod_types, usize>,
             )*
             phantom: std::marker::PhantomData<K>,
         }
@@ -350,9 +376,10 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             /// Create an empty #name database.
             pub fn new(_: K) -> Self {
                 #name {
-                    #( #table_names: Vec::new(), )*
+                    #( #pod_names: Vec::new(), )*
+                    #( #key_names: Vec::new(), )*
                     #(
-                        #table_lookup_hashes: std::collections::HashMap::new(),
+                        #pod_lookup_hashes: std::collections::HashMap::new(),
                     )*
                     phantom: std::marker::PhantomData,
                 }
@@ -364,16 +391,23 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         impl<K: 'static> #name<K> {
             #(
-                pub fn #table_inserts(&mut self, datum: #table_types) -> Key<K, #table_types> {
-                    let idx = self.#table_names.len();
-                    self.#table_names.push(datum.clone());
-                    self.#table_lookup_hashes.insert(datum, idx);
+                pub fn #pod_inserts(&mut self, datum: #pod_types) -> Key<K, #pod_types> {
+                    let idx = self.#pod_names.len();
+                    self.#pod_names.push(datum.clone());
+                    self.#pod_lookup_hashes.insert(datum, idx);
                     Key(idx, std::marker::PhantomData)
                 }
             )*
             #(
-                pub fn #table_lookups(&self, datum: &#table_types) -> Option<Key<K, #table_types>> {
-                    self.#table_lookup_hashes.get(datum)
+                pub fn #key_inserts(&mut self, datum: #key_types) -> Key<K, #key_types> {
+                    let idx = self.#key_names.len();
+                    self.#key_names.push(datum);
+                    Key(idx, std::marker::PhantomData)
+                }
+            )*
+            #(
+                pub fn #pod_lookups(&self, datum: &#pod_types) -> Option<Key<K, #pod_types>> {
+                    self.#pod_lookup_hashes.get(datum)
                         .map(|&i| Key(i, std::marker::PhantomData))
                     // self.0.#table_names.iter().enumerate()
                     //     .filter(|&(_,x)| x == datum)
@@ -383,9 +417,16 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             )*
         }
         #(
-            impl<K> Key<K,#table_types> {
-                pub fn d<'a,'b>(&'a self, database: &'b #name<K>) -> &'b #table_types {
-                    &database.#table_names[self.0]
+            impl<K> Key<K,#pod_types> {
+                pub fn d<'a,'b>(&'a self, database: &'b #name<K>) -> &'b #pod_types {
+                    &database.#pod_names[self.0]
+                }
+            }
+        )*
+        #(
+            impl<K> Key<K,#key_types> {
+                pub fn d<'a,'b>(&'a self, database: &'b #name<K>) -> &'b #key_types {
+                    &database.#key_names[self.0]
                 }
             }
         )*
