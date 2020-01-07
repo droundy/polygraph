@@ -467,14 +467,8 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        #[derive(Eq,PartialEq,Hash)]
+        #[derive(Clone, Copy, Eq,PartialEq,Hash)]
         pub struct Key<T>(usize, std::marker::PhantomData<T>);
-        impl<T> Clone for Key<T> {
-            fn clone(&self) -> Self {
-                Key(self.0, std::marker::PhantomData)
-            }
-        }
-        impl<T> Copy for Key<T> {}
 
         impl #name {
             #(
