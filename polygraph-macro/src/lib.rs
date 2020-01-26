@@ -116,18 +116,80 @@ struct SchemaOutput {
 #[derive(Debug,Eq,PartialEq)]
 enum KeyType {
     Key(syn::Ident),
-    // OptionKey(syn::Ident),
+    OptionKey(syn::Ident),
 }
 
 impl KeyType {
     fn key_to(&self) -> syn::Ident {
         match self {
             KeyType::Key(i) => i.clone(),
+            KeyType::OptionKey(i) => i.clone(),
         }
     }
 }
 
+fn first_of_type(t: &syn::Type) -> Option<(syn::Ident, syn::Type)> {
+    let p = if let syn::Type::Path(p) = t {
+        p
+    } else {
+        return None;
+    };
+    let path_count = p.path.segments.len();
+    if path_count != 1 {
+        return None;
+    }
+    let ident = p.path.segments.last().unwrap().clone().ident;
+    let path_only = p.path.segments.last().unwrap();
+    let args = if let syn::PathArguments::AngleBracketed(args) = &path_only.arguments {
+        args
+    } else {
+        return None;
+    };
+    if args.args.len() != 1 {
+        return None;
+    }
+    use syn::{GenericArgument};
+    let t = if let GenericArgument::Type(t) = args.args.first()? {
+        t
+    } else {
+        return None;
+    };
+    Some((ident, t.clone()))
+}
+
+fn type_is_just_ident(t: &syn::Type) -> Option<syn::Ident> {
+    let p = if let syn::Type::Path(p) = t {
+        p
+    } else {
+        return None;
+    };
+    let path_count = p.path.segments.len();
+    if path_count != 1 {
+        return None;
+    }
+    let ident = p.path.segments.last().unwrap().clone().ident;
+    let path_only = p.path.segments.last().unwrap();
+    if path_only.arguments != syn::PathArguments::None {
+        return None;
+    }
+    Some(ident)
+}
+
 fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
+    if let Some((key, t)) = first_of_type(&t) {
+        if key.to_string() == "Option" {
+            if let Some((key, t)) = first_of_type(&t) {
+                if key.to_string() == "Key" {
+                    if let Some(i) = type_is_just_ident(&t) {
+                        return Ok(Some(KeyType::OptionKey(i)));
+                    } else {
+                        return Err(syn::Error::new_spanned(t,
+                                                           "Key type should be a simple table name"));
+                    }
+                }
+            }
+        }
+    }
     if let syn::Type::Path(p) = t {
         let path_count = p.path.segments.len();
         println!("path is {:#?}", p);
@@ -376,9 +438,30 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
         .collect();
 
+    let mut key_query_backrefs: Vec<Vec<(syn::Ident, syn::Ident)>> = Vec::new();
     let key_query_structs: Vec<_> = key_structs.iter().cloned()
         .map(|mut x| {
+            let i = x.ident.clone();
+            let mut backrefs = Vec::new();
+            let mut backrefs_code = Vec::new();
+            if let Some(v) = reverse_references.get(&x.ident) {
+                for r in v.iter() {
+                    let field = quote::format_ident!("{}_of", r.1.to_string().to_snake_case());
+                    let t = &r.0;
+                    backrefs.push((t.clone(), field.clone()));
+                    let code = quote::quote!{
+                        pub #field: KeySet<#t>,
+                    };
+                    println!("\ncode is {:?}", code.to_string());
+                    backrefs_code.push(code);
+                }
+            }
+            key_query_backrefs.push(backrefs);
             x.ident = quote::format_ident!("{}Query", x.ident);
+            x.fields = syn::Fields::Named(syn::parse_quote!{{
+                __data: #i,
+                #(#backrefs_code)*
+            }});
             x
         })
         .collect();
@@ -406,6 +489,15 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         let rev = quote::format_ident!("{}_of", k.to_string().to_snake_case());
                         code.push(quote::quote!{
                             self.#field[_datum.#k.0].#rev.insert(k);
+                        });
+                    }
+                    KeyType::OptionKey(t) => {
+                        let field = quote::format_ident!("{}", t.to_string().to_snake_case());
+                        let rev = quote::format_ident!("{}_of", k.to_string().to_snake_case());
+                        code.push(quote::quote!{
+                            if let Some(idxk) = _datum.#k {
+                                self.#field[idxk.0].#rev.insert(k);
+                            }
                         });
                     }
                 }
@@ -513,7 +605,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 pub #pod_names: Vec<#pod_query_types>,
             )*
             #(
-                pub #key_names: Vec<#key_types>,
+                pub #key_names: Vec<#key_query_types>,
             )*
             #(
                 pub #pod_lookup_hashes: std::collections::HashMap<#pod_types, usize>,
@@ -563,14 +655,14 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #(
                 pub fn #key_inserts(&mut self, datum: #key_types) -> Key<#key_types> {
                     let idx = self.#key_names.len();
-                    self.#key_names.push(datum);
+                    self.#key_names.push(#key_query_types::new(datum.clone()));
                     let k = Key(idx, std::marker::PhantomData);
                     let _datum = &self.#key_names[idx];
                     #key_insert_backrefs
                     k
                 }
                 pub fn #key_sets(&mut self, k: Key<#key_types>, datum: #key_types) {
-                    let old = std::mem::replace(&mut self.#key_names[k.0], datum);
+                    let old = std::mem::replace(&mut self.#key_names[k.0], #key_query_types::new(datum));
                     // FIXME need to modify any back references.
                 }
             )*
@@ -594,7 +686,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         )*
         #(
             impl Key<#key_types> {
-                pub fn d<'a,'b>(&'a self, database: &'b #name) -> &'b #key_types {
+                pub fn d<'a,'b>(&'a self, database: &'b #name) -> &'b #key_query_types {
                     &database.#key_names[self.0]
                 }
             }
