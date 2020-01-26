@@ -118,6 +118,14 @@ enum KeyType {
     OptionKey(syn::Ident),
 }
 
+impl KeyType {
+    fn key_to(&self) -> syn::Ident {
+        match self {
+            KeyType::OptionKey(i) => i.clone(),
+        }
+    }
+}
+
 fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
     if let syn::Type::Path(p) = t {
         let path_count = p.path.segments.len();
@@ -269,12 +277,47 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let pod_structs = &output.pod_structs;
     let key_structs = &output.key_structs;
 
-    let pod_query_structs: Vec<_> = pod_structs.iter().cloned()
+    let key_names: Vec<_> =
+        key_structs.iter()
+        .map(|x| quote::format_ident!("{}", x.ident.to_string().to_snake_case()))
+        .collect();
+
+    let mut reverse_references = std::collections::HashMap::new();
+    for (map,t) in output.key_struct_maps.iter().zip(key_structs.iter()) {
+        println!("hello we have {:?}", t);
+        for (k,v) in map.iter() {
+            let kt = v.key_to();
+            if !reverse_references.contains_key(&kt) {
+                reverse_references.insert(kt.clone(), Vec::new());
+            }
+            reverse_references.get_mut(&kt).unwrap().push((t.ident.clone(), k.clone()));
+        }
+    }
+    println!("\n\nreverse references are {:?}", reverse_references);
+
+    let mut pod_query_backrefs: Vec<Vec<(syn::Ident, syn::Ident)>> = Vec::new();
+    let pod_query_structs: Vec<syn::ItemStruct> = pod_structs.iter().cloned()
         .map(|mut x| {
             let i = x.ident.clone();
+            let mut backrefs = Vec::new();
+            let mut backrefs_code = Vec::new();
+            if let Some(v) = reverse_references.get(&x.ident) {
+                for r in v.iter() {
+                    let field = quote::format_ident!("{}_of", r.1.to_string().to_snake_case());
+                    let t = &r.0;
+                    backrefs.push((t.clone(), field.clone()));
+                    let code = quote::quote!{
+                        pub #field: KeySet<#t>,
+                    };
+                    println!("\ncode is {:?}", code.to_string());
+                    backrefs_code.push(code);
+                }
+            }
+            pod_query_backrefs.push(backrefs);
             x.ident = quote::format_ident!("{}Query", x.ident);
             x.fields = syn::Fields::Named(syn::parse_quote!{{
                 __data: #i,
+                #(#backrefs_code)*
             }});
             x
         })
@@ -287,12 +330,18 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
         .collect();
     let pod_query_new: Vec<_> =
-        pod_query_structs.iter()
-        .map(|x| {
+        pod_query_structs.iter().zip(pod_query_backrefs.iter())
+        .map(|(x,br)| {
             let i = &x.ident;
+            let backcode = br.iter().map(|(t,f)| {
+                quote::quote!{
+                    #f: KeySet::<#t>::new(),
+                }
+            });
             quote::quote!{
                 #i {
                     __data: value,
+                    #(#backcode)*
                 }
             }
         })
@@ -341,10 +390,6 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
         .collect();
 
-    let key_names: Vec<_> =
-        key_structs.iter()
-        .map(|x| quote::format_ident!("{}", x.ident.to_string().to_snake_case()))
-        .collect();
     let key_inserts: Vec<_> =
         key_structs.iter()
         .map(|x| quote::format_ident!("insert_{}", x.ident.to_string().to_snake_case()))
@@ -466,8 +511,24 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        #[derive(Clone, Copy, Eq,PartialEq,Hash)]
+        type KeySet<T> = tinyset::Set64<Key<T>>;
+
+        #[derive(Eq,PartialEq,Hash)]
         pub struct Key<T>(usize, std::marker::PhantomData<T>);
+        impl<T> Copy for Key<T> {}
+        impl<T> Clone for Key<T> {
+            fn clone(&self) -> Self {
+                Key(self.0, self.1)
+            }
+        }
+        impl<T> tinyset::Fits64 for Key<T> {
+            unsafe fn from_u64(x: u64) -> Self {
+                Key(x as usize, std::marker::PhantomData)
+            }
+            fn to_u64(self) -> u64 {
+                self.0.to_u64()
+            }
+        }
 
         impl #name {
             #(

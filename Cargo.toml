@@ -15,6 +15,7 @@ description = "An in-memory relational database"
 
 polygraph-macro = { path = "polygraph-macro" }
 lazy_static = "1.0"
+tinyset = "0.4.2"
 
 [dev-dependencies]
 
