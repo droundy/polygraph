@@ -412,6 +412,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #key_structs
             #[repr(C)]
             #[derive(Clone)]
+            /// This table has keys to other tables
             #key_query_structs
 
             impl std::ops::Deref for #key_query_types {
