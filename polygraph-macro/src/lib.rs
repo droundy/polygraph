@@ -115,13 +115,14 @@ struct SchemaOutput {
 
 #[derive(Debug,Eq,PartialEq)]
 enum KeyType {
-    OptionKey(syn::Ident),
+    Key(syn::Ident),
+    // OptionKey(syn::Ident),
 }
 
 impl KeyType {
     fn key_to(&self) -> syn::Ident {
         match self {
-            KeyType::OptionKey(i) => i.clone(),
+            KeyType::Key(i) => i.clone(),
         }
     }
 }
@@ -167,7 +168,7 @@ fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
                                 //              args.args.first().unwrap().clone()]
                                 //     .into_iter().cloned().collect();
                                 // println!("new args: {:?}", args.args);
-                                Ok(Some(KeyType::OptionKey(i)))
+                                Ok(Some(KeyType::Key(i)))
                             }
                         } else {
                             Err(syn::Error::new_spanned(
@@ -394,6 +395,26 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         key_structs.iter()
         .map(|x| quote::format_ident!("insert_{}", x.ident.to_string().to_snake_case()))
         .collect();
+    let key_insert_backrefs: Vec<_> =
+        output.key_struct_maps.iter()
+        .map(|map| {
+            let mut code = Vec::new();
+            for (k,v) in map.iter() {
+                match v {
+                    KeyType::Key(t) => {
+                        let field = quote::format_ident!("{}", t.to_string().to_snake_case());
+                        let rev = quote::format_ident!("{}_of", k.to_string().to_snake_case());
+                        code.push(quote::quote!{
+                            self.#field[_datum.#k.0].#rev.insert(k);
+                        });
+                    }
+                }
+            }
+            quote::quote!{
+                #(#code)*
+            }
+        })
+        .collect();
     let key_sets: Vec<_> =
         key_structs.iter()
         .map(|x| quote::format_ident!("set_{}", x.ident.to_string().to_snake_case()))
@@ -543,7 +564,10 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 pub fn #key_inserts(&mut self, datum: #key_types) -> Key<#key_types> {
                     let idx = self.#key_names.len();
                     self.#key_names.push(datum);
-                    Key(idx, std::marker::PhantomData)
+                    let k = Key(idx, std::marker::PhantomData);
+                    let _datum = &self.#key_names[idx];
+                    #key_insert_backrefs
+                    k
                 }
                 pub fn #key_sets(&mut self, k: Key<#key_types>, datum: #key_types) {
                     let old = std::mem::replace(&mut self.#key_names[k.0], datum);

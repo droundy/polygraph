@@ -21,7 +21,7 @@ pub mod tree {
         type Tree;
         pub struct Surname(pub String);
         pub struct Person {
-            pub surname: Key<Surname>,
+            pub last_name: Key<Surname>,
             // father: Option<Key<Person>>,
             // mother: Option<Key<Person>>,
             pub name: String,
@@ -34,15 +34,16 @@ pub mod tree {
         let roundy = db.insert_surname(Surname("Roundy".to_string()));
         let maiden_name = db.insert_surname(Surname("Maiden".to_string()));
         let me = db.insert_person(Person {
-            surname: roundy,
+            last_name: roundy,
             name: "David".to_string()
         });
         let wife = db.insert_person(Person {
-            surname: maiden_name,
+            last_name: maiden_name,
             name: "Monica".to_string()
         });
-        assert_eq!(me.d(&db).surname.d(&db).0, "Roundy");
-        assert_eq!(wife.d(&db).surname.d(&db).0, "Maiden");
+        assert_eq!(me.d(&db).last_name.d(&db).0, "Roundy");
+        assert_eq!(wife.d(&db).last_name.d(&db).0, "Maiden");
+        assert!(roundy.d(&db).last_name_of.contains(me));
         // db.set_person(wife, Person {
         //     surname: roundy,
         //     name: "Monica".to_string()
