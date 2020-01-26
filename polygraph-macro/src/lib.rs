@@ -87,10 +87,11 @@ impl syn::parse::Parse for SchemaInput {
 #[derive(Debug)]
 struct SchemaOutput {
     name: syn::Ident,
-    save_structs: Vec<syn::ItemStruct>,
-    save_enums: Vec<syn::ItemEnum>,
-    table_structs: Vec<syn::ItemStruct>,
-    table_enums: Vec<syn::ItemEnum>,
+    pod_structs: Vec<syn::ItemStruct>,
+    pod_enums: Vec<syn::ItemEnum>,
+    key_structs: Vec<syn::ItemStruct>,
+    key_struct_maps: Vec<std::collections::HashMap<syn::Ident, KeyType>>,
+    key_enums: Vec<syn::ItemEnum>,
 }
 
 // fn lifetime_a() -> syn::Generics {
@@ -117,14 +118,14 @@ enum KeyType {
     OptionKey(syn::Ident),
 }
 
-fn parse_keytype(t: &mut syn::Type) -> Result<Option<KeyType>, syn::Error> {
+fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
     if let syn::Type::Path(p) = t {
         let path_count = p.path.segments.len();
         println!("path is {:#?}", p);
         println!("path_count is {:#?}", path_count);
         if path_count == 1 {
             let ident = p.path.segments.last().unwrap().clone().ident;
-            let path_only = p.path.segments.last_mut().unwrap();
+            let path_only = p.path.segments.last().unwrap();
             let name = ident.to_string();
             println!("path_only is {:#?}", name);
             if name == "Option" {
@@ -133,7 +134,7 @@ fn parse_keytype(t: &mut syn::Type) -> Result<Option<KeyType>, syn::Error> {
                 unimplemented!()
             } else {
                 if name == "Key" {
-                    if let syn::PathArguments::AngleBracketed(args) = &mut path_only.arguments {
+                    if let syn::PathArguments::AngleBracketed(args) = &path_only.arguments {
                         if args.args.len() != 1 {
                             return Err(syn::Error::new_spanned(
                                 t,
@@ -154,10 +155,10 @@ fn parse_keytype(t: &mut syn::Type) -> Result<Option<KeyType>, syn::Error> {
                                                             "Key type should be a simple table name"))
                             } else {
                                 let i = tp.ident.clone();
-                                args.args = [// syn::parse_quote!{K},
-                                             args.args.first().unwrap().clone()]
-                                    .into_iter().cloned().collect();
-                                println!("new args: {:?}", args.args);
+                                // args.args = [// syn::parse_quote!{K},
+                                //              args.args.first().unwrap().clone()]
+                                //     .into_iter().cloned().collect();
+                                // println!("new args: {:?}", args.args);
                                 Ok(Some(KeyType::OptionKey(i)))
                             }
                         } else {
@@ -184,12 +185,12 @@ fn parse_keytype(t: &mut syn::Type) -> Result<Option<KeyType>, syn::Error> {
     }
 }
 
-fn parse_fields(f: &mut syn::FieldsNamed)
+fn parse_fields(f: &syn::FieldsNamed)
                 -> Result<std::collections::HashMap<syn::Ident,KeyType>, syn::Error>
 {
     let mut keymap = std::collections::HashMap::new();
-    for n in f.named.iter_mut() {
-        if let Some(kt) = parse_keytype(&mut n.ty)? {
+    for n in f.named.iter() {
+        if let Some(kt) = parse_keytype(&n.ty)? {
             keymap.insert(n.ident.clone().unwrap(), kt);
         }
     }
@@ -202,46 +203,31 @@ impl SchemaInput {
         tables.extend(self.structs.iter().map(|x| x.ident.clone()));
         tables.extend(self.enums.iter().map(|x| x.ident.clone()));
 
-        let save_structs: Vec<_> = self.structs.iter().map(|x| {
-            let mut x = x.clone();
-            x.vis = syn::Visibility::Public(syn::VisPublic {
-                pub_token: syn::Token!(pub)(x.span())
-            });
-            x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
-            x
-        }).collect();
-        let mut table_structs = Vec::with_capacity(self.structs.len());
-        for mut x in self.structs.iter().cloned() {
-            x.vis = syn::Visibility::Public(syn::VisPublic {
-                pub_token: syn::Token!(pub)(x.span())
-            });
-            match &mut x.fields {
+        let mut pod_structs = Vec::new();
+        let mut key_structs = Vec::new();
+        let mut key_struct_maps = Vec::new();
+
+        for x in self.structs.iter().cloned() {
+            match &x.fields {
                 syn::Fields::Named(n) => {
                     let keymap = parse_fields(n)?;
-                    for (f,k) in keymap.iter() {
-                        println!("{}: {:?}", f.to_string(), k);
-                        // panic!("what to do now? {}: {:?}", f.to_string(), k);
+                    if keymap.len() > 0 {
+                        key_struct_maps.push(keymap);
+                        key_structs.push(x);
+                    } else {
+                        pod_structs.push(x);
                     }
                 }
                 syn::Fields::Unnamed(_) => {
+                    pod_structs.push(x);
                 }
                 syn::Fields::Unit => {
-                    // Nothing to do for this
+                    pod_structs.push(x);
                 }
             }
-            // x.generics = lifetime_a();
-            table_structs.push(x)
         }
 
-        let save_enums: Vec<_> = self.enums.iter().map(|x| {
-            let mut x = x.clone();
-            x.vis = syn::Visibility::Public(syn::VisPublic {
-                pub_token: syn::Token!(pub)(x.span())
-            });
-            x.ident = syn::Ident::new(&format!("Save{}", x.ident.to_string()), x.ident.span());
-            x
-        }).collect();
-        let table_enums: Vec<_> = self.enums.iter().map(|x| {
+        let pod_enums: Vec<_> = self.enums.iter().map(|x| {
             let mut x = x.clone();
             x.vis = syn::Visibility::Public(syn::VisPublic {
                 pub_token: syn::Token!(pub)(x.span())
@@ -250,10 +236,11 @@ impl SchemaInput {
         }).collect();
         Ok(SchemaOutput {
             name: self.name.clone(),
-            save_structs,
-            table_structs,
-            save_enums,
-            table_enums,
+            pod_structs,
+            key_structs,
+            key_struct_maps,
+            key_enums: Vec::new(),
+            pod_enums,
         })
     }
 }
@@ -271,9 +258,6 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
         Ok(v) => v,
     };
-    // let save_structs = output.save_structs.iter();
-    // let mut save_names: Vec<_> =
-    //     output.save_structs.iter().map(|x| x.ident.clone()).collect();
 
     // Here "pod" means "plain old data", and refers to tables that
     // have no keys in them.  When such tables exist, there is just
@@ -282,12 +266,16 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // which means that we need to effectively intern those values.
     // This also may save size, if the same large value is used many
     // times in the database (essentially interning).
-    let pod_structs: Vec<_> = output.table_structs.iter()
-        .filter(|x| x.generics.params.len() == 0)
-        .cloned().collect();
+    let pod_structs = &output.pod_structs;
+    let key_structs = &output.key_structs;
+
     let pod_query_structs: Vec<_> = pod_structs.iter().cloned()
         .map(|mut x| {
+            let i = x.ident.clone();
             x.ident = quote::format_ident!("{}Query", x.ident);
+            x.fields = syn::Fields::Named(syn::parse_quote!{{
+                __data: #i,
+            }});
             x
         })
         .collect();
@@ -296,6 +284,17 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .map(|x| {
             let i = x.ident.clone();
             syn::parse_quote!{#i}
+        })
+        .collect();
+    let pod_query_new: Vec<_> =
+        pod_query_structs.iter()
+        .map(|x| {
+            let i = &x.ident;
+            quote::quote!{
+                #i {
+                    __data: value,
+                }
+            }
         })
         .collect();
 
@@ -327,9 +326,6 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
         .collect();
 
-    let key_structs: Vec<_> = output.table_structs.iter()
-        .filter(|x| x.generics.params.len() != 0)
-        .cloned().collect();
     let key_query_structs: Vec<_> = key_structs.iter().cloned()
         .map(|mut x| {
             x.ident = quote::format_ident!("{}Query", x.ident);
@@ -367,7 +363,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .collect();
 
     // let save_enums = output.save_enums.iter();
-    let table_enums = output.table_enums.iter();
+    let table_enums = output.pod_enums.iter();
     // save_names.extend(
     //     output.save_enums.iter().map(|x| x.ident.clone()));
     let name = &input.name;
@@ -385,12 +381,13 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #pod_structs
             #[repr(C)]
             #[derive(Eq,PartialEq,Hash,Clone)]
+            /// This is plain old data.
             #pod_query_structs
 
             impl std::ops::Deref for #pod_query_types {
                 type Target = #pod_types;
                 fn deref(&self) -> &Self::Target {
-                    unsafe { &*(self as *const Self as *const Self::Target) }
+                    &self.__data
                 }
             }
             impl Query for #pod_query_types {
@@ -399,9 +396,10 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     // to the query type.  This relies on zero bytes
                     // being valid values for all extra fields in the
                     // query struct.
-                    let x = (value,
-                             [0u8; std::mem::size_of::<Self>() - std::mem::size_of::<Self::Target>()]);
-                    unsafe { std::mem::transmute(x) }
+                    #pod_query_new
+                    // let x = (value,
+                    //          [0u8; std::mem::size_of::<Self>() - std::mem::size_of::<Self::Target>()]);
+                    // unsafe { std::mem::transmute(x) }
                 }
             }
             impl HasQuery for #pod_types {
