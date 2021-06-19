@@ -17,7 +17,7 @@
 //! ```
 
 pub mod tree {
-    polygraph_macro::schema!{
+    polygraph_macro::schema! {
         type Tree;
         pub struct Surname(pub String);
         pub struct Person {
@@ -36,17 +36,17 @@ pub mod tree {
         let me = db.insert_person(Person {
             last_name: roundy,
             father: None,
-            name: "David".to_string()
+            name: "David".to_string(),
         });
         let wife = db.insert_person(Person {
             last_name: maiden_name,
             father: None,
-            name: "Monica".to_string()
+            name: "Monica".to_string(),
         });
         let kid = db.insert_person(Person {
             last_name: roundy,
             father: Some(me),
-            name: "Kid".to_string()
+            name: "Kid".to_string(),
         });
         assert_eq!(me.d(&db).last_name.d(&db).0, "Roundy");
         assert_eq!(wife.d(&db).last_name.d(&db).0, "Maiden");
@@ -72,7 +72,7 @@ pub mod tree {
     }
 }
 
-polygraph_macro::schema!{
+polygraph_macro::schema! {
     type Schema;
     /// This is a cool test!
     pub struct Test {
@@ -85,5 +85,6 @@ polygraph_macro::schema!{
 
 /// This is not in the schema.
 pub enum NotHere {
-    A, B,
+    A,
+    B,
 }
