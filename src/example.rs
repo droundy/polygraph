@@ -22,7 +22,7 @@ pub mod tree {
         pub struct Surname(pub String);
         pub struct Person {
             pub last_name: Key<Surname>,
-            father: Option<Key<Person>>,
+            pub father: Option<Key<Person>>,
             // mother: Option<Key<Person>>,
             pub name: String,
         }
@@ -52,8 +52,17 @@ pub mod tree {
         assert_eq!(wife.d(&db).last_name.d(&db).0, "Maiden");
 
         assert!(roundy.d(&db).last_name_of.contains(me));
+        assert!(roundy.d(&db).last_name_of.contains(kid));
         assert!(me.d(&db).father_of.contains(kid));
         assert!(!me.d(&db).father_of.contains(wife));
+
+        assert_eq!(db[db[me].last_name].0, "Roundy");
+        assert_eq!(db[db[wife].last_name].0, "Maiden");
+
+        assert!(db[roundy].last_name_of.contains(me));
+        assert!(db[roundy].last_name_of.contains(kid));
+        assert!(db[me].father_of.contains(kid));
+        assert!(!db[me].father_of.contains(wife));
 
         // db.set_person(wife, Person {
         //     surname: roundy,

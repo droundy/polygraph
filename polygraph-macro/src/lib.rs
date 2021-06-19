@@ -677,6 +677,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             )*
         }
+
         #(
             impl Key<#pod_types> {
                 pub fn d<'a,'b>(&'a self, database: &'b #name) -> &'b #pod_query_types {
@@ -688,6 +689,22 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl Key<#key_types> {
                 pub fn d<'a,'b>(&'a self, database: &'b #name) -> &'b #key_query_types {
                     &database.#key_names[self.0]
+                }
+            }
+        )*
+        #(
+            impl std::ops::Index<Key<#key_types>> for #name {
+                type Output = #key_query_types;
+                fn index(&self, index: Key<#key_types>) -> &Self::Output {
+                    &self.#key_names[index.0]
+                }
+            }
+        )*
+        #(
+            impl std::ops::Index<Key<#pod_types>> for #name {
+                type Output = #pod_query_types;
+                fn index(&self, index: Key<#pod_types>) -> &Self::Output {
+                    &self.#pod_names[index.0]
                 }
             }
         )*
