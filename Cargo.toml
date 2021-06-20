@@ -13,7 +13,7 @@ description = "A multiple-interconnected graph library or in-memory relational d
 
 [dependencies]
 
-polygraph-macro = { path = "polygraph-macro" }
+polygraph-macro = { version = "0.1.0", path = "polygraph-macro" }
 lazy_static = "1.0"
 tinyset = "0.4.2"
 
