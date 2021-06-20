@@ -194,13 +194,13 @@ fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
     }
     if let syn::Type::Path(p) = t {
         let path_count = p.path.segments.len();
-        println!("path is {:#?}", p);
-        println!("path_count is {:#?}", path_count);
+        // println!("path is {:#?}", p);
+        // println!("path_count is {:#?}", path_count);
         if path_count == 1 {
             let ident = p.path.segments.last().unwrap().clone().ident;
             let path_only = p.path.segments.last().unwrap();
             let name = ident.to_string();
-            println!("path_only is {:#?}", name);
+            // println!("path_only is {:#?}", name);
             if name == "Option" {
                 let args = path_only.clone().arguments;
                 println!("args are {:#?}", args);
@@ -327,7 +327,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     use heck::SnakeCase;
 
     let input: SchemaInput = syn::parse_macro_input!(raw_input as SchemaInput);
-    println!("input is {:#?}", input);
+    // println!("input is {:#?}", input);
     let output = match input.process() {
         Err(e) => {
             return e.to_compile_error().into();
@@ -352,7 +352,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let mut reverse_references = std::collections::HashMap::new();
     for (map, t) in output.key_struct_maps.iter().zip(key_structs.iter()) {
-        println!("hello we have {:?}", t);
+        // println!("hello we have {:?}", t);
         for (k, v) in map.iter() {
             let kt = v.key_to();
             if !reverse_references.contains_key(&kt) {
@@ -364,7 +364,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 .push((t.ident.clone(), k.clone()));
         }
     }
-    println!("\n\nreverse references are {:?}", reverse_references);
+    // println!("\n\nreverse references are {:?}", reverse_references);
 
     let mut pod_query_backrefs: Vec<Vec<(syn::Ident, syn::Ident)>> = Vec::new();
     let pod_query_structs: Vec<syn::ItemStruct> = pod_structs
@@ -382,7 +382,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let code = quote::quote! {
                         pub #field: KeySet<#t>,
                     };
-                    println!("\ncode is {:?}", code.to_string());
+                    // println!("\ncode is {:?}", code.to_string());
                     backrefs_code.push(code);
                 }
             }
@@ -465,7 +465,7 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let code = quote::quote! {
                         pub #field: KeySet<#t>,
                     };
-                    println!("\ncode is {:?}", code.to_string());
+                    // println!("\ncode is {:?}", code.to_string());
                     backrefs_code.push(code);
                 }
             }
@@ -494,22 +494,30 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let key_insert_backrefs: Vec<_> = output
         .key_struct_maps
         .iter()
-        .map(|map| {
+        .enumerate()
+        .map(|(i, map)| {
+            let myname = &key_names[i];
             let mut code = Vec::new();
-            for (k, v) in map.iter() {
+            // The following keys_and_types is simply used to ensure we generate
+            // a reproducible code.  This shouldn't be needed for correctness,
+            // but when I had a bug it was a huge pain to have it randomly
+            // disappearing.
+            let mut keys_and_types = map.iter().collect::<Vec<_>>();
+            keys_and_types.sort_by_key(|a| a.0);
+            for (k, v) in keys_and_types.into_iter() { // or just map.iter()
                 match v {
                     KeyType::Key(t) => {
                         let field = quote::format_ident!("{}", t.to_string().to_snake_case());
                         let rev = quote::format_ident!("{}_of", k.to_string().to_snake_case());
                         code.push(quote::quote! {
-                            self.#field[_datum.#k.0].#rev.insert(k);
+                            self.#field[self.#myname[idx].#k.0].#rev.insert(k);
                         });
                     }
                     KeyType::OptionKey(t) => {
                         let field = quote::format_ident!("{}", t.to_string().to_snake_case());
                         let rev = quote::format_ident!("{}_of", k.to_string().to_snake_case());
                         code.push(quote::quote! {
-                            if let Some(idxk) = _datum.#k {
+                            if let Some(idxk) = self.#myname[idx].#k {
                                 self.#field[idxk.0].#rev.insert(k);
                             }
                         });
@@ -671,7 +679,6 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let idx = self.#key_names.len();
                     self.#key_names.push(#key_query_types::new(datum.clone()));
                     let k = Key(idx, std::marker::PhantomData);
-                    let _datum = &self.#key_names[idx];
                     #key_insert_backrefs
                     k
                 }
@@ -723,6 +730,6 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         )*
     };
-    println!("\n\n\noutput is\n\n{}", output.to_string());
+    // println!("\n\n\noutput is\n\n{}", output.to_string());
     output.into()
 }
