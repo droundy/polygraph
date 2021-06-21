@@ -19,12 +19,19 @@
 pub mod tree {
     polygraph_macro::schema! {
         type Tree;
+        /// By defining a `Surname` type, we can query which `Person` have a
+        /// given surname.
         pub struct Surname(pub String);
         pub struct Person {
             pub last_name: Key<Surname>,
+            /// `father` is a one-to-many relationship
             pub father: Option<Key<Person>>,
+            /// `mother` is a one-to-many relationship
             pub mother: Option<Key<Person>>,
+            /// We use a raw String for given name, since we don't care to
+            /// iterate over all "Davids".  Otherwise we'd do the same as with [`Surname`].
             pub name: String,
+            /// `dog` is a many-to-many relationship
             pub dog: KeySet<Dog>,
         }
         pub struct Dog {
