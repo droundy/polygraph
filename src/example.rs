@@ -25,9 +25,9 @@ pub mod tree {
             pub father: Option<Key<Person>>,
             pub mother: Option<Key<Person>>,
             pub name: String,
+            pub dog: KeySet<Dog>,
         }
         pub struct Dog {
-            pub owner: Option<Key<Person>>,
             pub name: String,
         }
     }
@@ -35,6 +35,15 @@ pub mod tree {
     #[test]
     fn test() {
         let mut db = Tree::new();
+
+        let mickey = db.insert_dog(Dog {
+            name: "Mickey".to_string(),
+        });
+        let minnie = db.insert_dog(Dog {
+            name: "Minnie".to_string(),
+        });
+        let my_dogs: tinyset::Set64<_> = [mickey, minnie].iter().cloned().collect();
+
         let roundy = db.insert_surname(Surname("Roundy".to_string()));
         let maiden_name = db.insert_surname(Surname("Maiden".to_string()));
         let me = db.insert_person(Person {
@@ -42,26 +51,21 @@ pub mod tree {
             father: None,
             mother: None,
             name: "David".to_string(),
+            dog: my_dogs.clone(),
         });
         let wife = db.insert_person(Person {
             last_name: maiden_name,
             father: None,
             mother: None,
             name: "Monica".to_string(),
+            dog: my_dogs.clone(),
         });
         let kid = db.insert_person(Person {
             last_name: roundy,
             father: Some(me),
             mother: Some(wife),
             name: "Kid".to_string(),
-        });
-        let mickey = db.insert_dog(Dog {
-            owner: Some(me),
-            name: "Mickey".to_string(),
-        });
-        let minnie = db.insert_dog(Dog {
-            owner: Some(me),
-            name: "Minnie".to_string(),
+            dog: my_dogs.clone(),
         });
         assert_eq!(me.d(&db).last_name.d(&db).0, "Roundy");
         assert_eq!(wife.d(&db).last_name.d(&db).0, "Maiden");
@@ -72,8 +76,12 @@ pub mod tree {
         assert!(!me.d(&db).father_of.contains(wife));
         assert!(wife.d(&db).mother_of.contains(kid));
 
-        assert!(me.d(&db).owner_of.contains(mickey));
-        assert!(me.d(&db).owner_of.contains(minnie));
+        assert!(minnie.d(&db).dog_of.contains(me));
+        assert!(minnie.d(&db).dog_of.contains(wife));
+        assert!(minnie.d(&db).dog_of.contains(kid));
+
+        // assert!(me.d(&db).owner_of.contains(mickey));
+        // assert!(me.d(&db).owner_of.contains(minnie));
 
         assert_eq!(db[db[me].last_name].0, "Roundy");
         assert_eq!(db[db[wife].last_name].0, "Maiden");

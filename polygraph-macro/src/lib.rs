@@ -117,6 +117,7 @@ struct SchemaOutput {
 enum KeyType {
     Key(syn::Ident),
     OptionKey(syn::Ident),
+    KeySet(syn::Ident),
 }
 
 impl KeyType {
@@ -124,6 +125,7 @@ impl KeyType {
         match self {
             KeyType::Key(i) => i.clone(),
             KeyType::OptionKey(i) => i.clone(),
+            KeyType::KeySet(i) => i.clone(),
         }
     }
 }
@@ -189,6 +191,15 @@ fn parse_keytype(t: &syn::Type) -> Result<Option<KeyType>, syn::Error> {
                         ));
                     }
                 }
+            }
+        } else if key.to_string() == "KeySet" {
+            if let Some(i) = type_is_just_ident(&t) {
+                return Ok(Some(KeyType::KeySet(i)));
+            } else {
+                return Err(syn::Error::new_spanned(
+                    t,
+                    "Key type should be a simple table name",
+                ));
             }
         }
     }
@@ -504,7 +515,8 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             // disappearing.
             let mut keys_and_types = map.iter().collect::<Vec<_>>();
             keys_and_types.sort_by_key(|a| a.0);
-            for (k, v) in keys_and_types.into_iter() { // or just map.iter()
+            for (k, v) in keys_and_types.into_iter() {
+                // or just map.iter()
                 match v {
                     KeyType::Key(t) => {
                         let field = quote::format_ident!("{}", t.to_string().to_snake_case());
@@ -518,6 +530,15 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         let rev = quote::format_ident!("{}_of", k.to_string().to_snake_case());
                         code.push(quote::quote! {
                             if let Some(idxk) = self.#myname[idx].#k {
+                                self.#field[idxk.0].#rev.insert(k);
+                            }
+                        });
+                    }
+                    KeyType::KeySet(t) => {
+                        let field = quote::format_ident!("{}", t.to_string().to_snake_case());
+                        let rev = quote::format_ident!("{}_of", k.to_string().to_snake_case());
+                        code.push(quote::quote! {
+                            for idxk in self.#myname[idx].#k.iter() {
                                 self.#field[idxk.0].#rev.insert(k);
                             }
                         });
@@ -646,7 +667,8 @@ pub fn schema(raw_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        type KeySet<T> = tinyset::Set64<Key<T>>;
+        type Set64<K> = tinyset::Set64<K>;
+        type KeySet<T> = Set64<Key<T>>;
 
         #[derive(Eq,PartialEq,Hash)]
         pub struct Key<T>(usize, std::marker::PhantomData<T>);
