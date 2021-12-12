@@ -3,9 +3,9 @@
 polygraph!{
   struct Person {
      /// Biological father
-     father: Option<Person>,
+     father: Option<Key<Person>>,
      /// Biological mother
-     mother: Option<Person>,
+     mother: Option<Key<Person>>,
      godparents: Set<Person>,
      surname: Surname,
      givenname: String,
