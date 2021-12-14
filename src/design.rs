@@ -65,7 +65,8 @@ pub struct Ref<'a, T> {
   graphs: &'a Graphs,
   key: Key<T>,
 }
-impl<'a> Deref<Person> Ref<'a, Person> {
+impl<'a> Deref Ref<'a, Person> {
+  type Target = Person;
   fn deref(& self) -> & Person {
     &self.graphs.person[self.key.index]
   }
