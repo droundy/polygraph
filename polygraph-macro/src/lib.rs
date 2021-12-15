@@ -86,12 +86,12 @@ impl syn::parse::Parse for SchemaInput {
 
 #[derive(Debug)]
 struct SchemaOutput {
-    name: syn::Ident,
+    // name: syn::Ident,
     pod_structs: Vec<syn::ItemStruct>,
     pod_enums: Vec<syn::ItemEnum>,
     key_structs: Vec<syn::ItemStruct>,
     key_struct_maps: Vec<std::collections::HashMap<syn::Ident, KeyType>>,
-    key_enums: Vec<syn::ItemEnum>,
+    // key_enums: Vec<syn::ItemEnum>,
 }
 
 // fn lifetime_a() -> syn::Generics {
@@ -322,11 +322,11 @@ impl SchemaInput {
             })
             .collect();
         Ok(SchemaOutput {
-            name: self.name.clone(),
+            // name: self.name.clone(),
             pod_structs,
             key_structs,
             key_struct_maps,
-            key_enums: Vec::new(),
+            // key_enums: Vec::new(),
             pod_enums,
         })
     }
